@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Libro de Cuentas · Préstamos y Ventas Financiadas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#1C2B36;
+    --ink-2:#FFFFFF;
+    --ink-3:#F1EFE9;
+    --paper:#1C2B36;
+    --paper-dim:#69747C;
+    --brass:#5B4FE0;
+    --brass-bright:#463ACB;
+    --brick:#A94E30;
+    --sage:#3F7A46;
+    --line:#E4E1D8;
+    --line-strong:#D2CDBF;
+    --radius:2px;
+    --font-display:'Lato', sans-serif;
+    --font-body:'Lato', sans-serif;
+    --font-mono:'Lato', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#FFFFFF;
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  a{color:inherit;}
+  ::selection{background:var(--brass);color:#FFFFFF;}
+  h1,h2,h3{font-weight:900;}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass-bright);font-weight:700;}
+
+  .btn{font-family:var(--font-body);font-weight:600;font-size:14px;border:1px solid var(--line-strong);background:transparent;color:var(--paper);padding:10px 18px;border-radius:var(--radius);cursor:pointer;letter-spacing:.01em;transition:all .15s ease;}
+  .btn:hover{border-color:var(--brass);color:var(--brass-bright);}
+  .btn i{margin-right:6px;}
+  .btn-solid{background:var(--brass);border-color:var(--brass);color:#FFFFFF;}
+  .btn-solid:hover{background:var(--brass-bright);border-color:var(--brass-bright);color:#FFFFFF;}
+  .btn-danger{background:#FFFFFF;border-color:#E2726B;color:#E2726B;}
+  .btn-danger:hover{background:#FDEDEC;border-color:#E2726B;color:#E2726B;}
+  .btn-sm{padding:6px 12px;font-size:12.5px;}
+  .btn-ghost{border-color:transparent;padding:6px 8px;}
+  .btn-ghost:hover{border-color:transparent;background:var(--ink-3);color:var(--ink);}
+
+  input,select,textarea{font-family:var(--font-body);background:#FFFFFF;border:1px solid var(--line);color:var(--paper);padding:9px 11px;border-radius:var(--radius);font-size:13.5px;width:100%;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brass);}
+  label{font-size:11.5px;color:var(--paper-dim);display:block;margin-bottom:5px;font-family:var(--font-mono);letter-spacing:.02em;}
+  .field{margin-bottom:14px;}
+  .row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+
+  .card{background:#FFFFFF;border:1px solid var(--line);border-radius:var(--radius);padding:20px;}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;padding:3px 9px;border-radius:20px;border:1px solid var(--line-strong);color:var(--paper-dim);white-space:nowrap;}
+
+  .app-shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh;}
+  .sidebar{border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;}
+  .sidebar-brand{display:flex;align-items:center;gap:8px;padding:0 6px 20px;font-family:var(--font-display);font-size:16px;font-weight:900;color:var(--brass-bright);border-bottom:1px solid var(--line);margin-bottom:16px;}
+  .nav-group{margin-bottom:16px;}
+  .nav-group-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--paper-dim);padding:0 8px 8px;font-weight:700;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius);font-size:13.5px;cursor:pointer;color:var(--paper-dim);margin-bottom:2px;}
+  .nav-item i{width:16px;text-align:center;flex-shrink:0;font-size:13px;}
+  .nav-item:hover{color:var(--ink);background:var(--ink-3);}
+  .nav-item.active{color:#FFFFFF;background:var(--brass);font-weight:700;}
+  .nav-item .dot{width:5px;height:5px;border-radius:50%;background:var(--brick);flex-shrink:0;margin-left:auto;}
+  .sidebar-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px;font-size:12px;color:var(--paper-dim);}
+  .sidebar-foot .agname{color:var(--paper);font-weight:600;font-size:13px;}
+
+  .main{padding:30px 34px;overflow-y:auto;}
+  .main-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px;}
+  .main-head h1{font-family:var(--font-display);font-size:26px;margin:0 0 6px;font-weight:600;}
+  .main-head .sub{color:var(--paper-dim);font-size:13.5px;margin:0;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+  .kpi{border:1px solid var(--line);padding:16px;border-radius:var(--radius);position:relative;}
+  .kpi-info{position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line-strong);background:#fff;color:var(--paper-dim);display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;}
+  .kpi-info:hover{border-color:var(--brass);color:var(--brass-bright);}
+  .kpi .lbl{font-family:var(--font-mono);font-size:10px;color:var(--paper-dim);letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px;padding-right:22px;}
+  .kpi .val{font-family:var(--font-display);font-size:22px;font-weight:600;}
+  .kpi .val.brass{color:var(--brass-bright);}
+  .kpi .val.sage{color:var(--sage);}
+  .kpi .val.brick{color:var(--brick);}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--paper-dim);padding:8px 10px;border-bottom:1px solid var(--line-strong);}
+  td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tr.clickable:hover{background:var(--ink-3);cursor:pointer;}
+  .empty-row{text-align:center;color:var(--paper-dim);padding:34px 10px;font-size:13px;}
+
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px;}
+  .search-wrap{position:relative;max-width:360px;margin-bottom:22px;}
+  .search-wrap i{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--paper-dim);font-size:13px;}
+  .search-wrap input{padding-left:34px;}
+
+  .item-card{margin-bottom:10px;}
+  .item-card .head{display:flex;align-items:flex-start;justify-content:space-between;cursor:pointer;}
+  .item-card .name{font-family:var(--font-display);font-size:15px;font-weight:700;}
+  .item-card .meta{font-size:13px;color:var(--paper-dim);margin-top:4px;}
+  .item-card .cuota-line{font-size:13px;margin-top:4px;}
+  .item-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .cuotas-table{margin-top:10px;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(28,43,54,.5);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;}
+  .modal-box{background:#FFFFFF;border:1px solid var(--line);border-radius:var(--radius);padding:20px;width:100%;max-width:460px;margin:auto;}
+  .modal-box h3{font-family:var(--font-display);font-size:18px;font-weight:600;margin:0;}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--brass);color:#FFFFFF;padding:12px 22px;border-radius:var(--radius);font-size:13.5px;font-weight:700;z-index:400;}
+
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px;}
+
+  #login-screen{min-height:100vh;display:none;align-items:center;justify-content:center;background:var(--ink-3);padding:20px;}
+  .login-box{background:#FFFFFF;border:1px solid var(--line);border-radius:var(--radius);padding:32px 28px;width:100%;max-width:360px;}
+  .login-brand{display:flex;align-items:center;gap:9px;font-family:var(--font-display);font-size:19px;font-weight:900;color:var(--brass-bright);margin-bottom:4px;}
+  .login-sub{color:var(--paper-dim);font-size:13.5px;margin:0 0 24px;}
+  .login-error{background:#FDEDEC;color:#A32D2D;border:1px solid #F7C1C1;border-radius:var(--radius);padding:9px 12px;font-size:12.5px;margin-bottom:14px;display:none;}
+  .login-success{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:var(--radius);padding:9px 12px;font-size:12.5px;margin-bottom:14px;display:none;}
+  .login-loading{min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--paper-dim);font-size:13px;}
+  .sidebar-user{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;}
+  .sidebar-user .logout-btn{color:var(--paper-dim);cursor:pointer;font-size:12px;}
+  .sidebar-user .logout-btn:hover{color:#A32D2D;}
+
+  @media (max-width:880px){
+    .app-shell{grid-template-columns:1fr;}
+    .sidebar{position:relative;height:auto;flex-direction:row;overflow-x:auto;align-items:center;padding:14px 12px;gap:4px;}
+    .sidebar-brand{border:none;padding:0 10px 0 0;margin:0;}
+    .nav-group{display:flex;gap:4px;margin-bottom:0;}
+    .nav-group-label{display:none;}
+    .sidebar-foot{display:none;}
+    .nav-item{white-space:nowrap;}
+    .kpi-grid{grid-template-columns:1fr 1fr !important;}
+    .main{padding:18px;}
+    .row-2,.row-3{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div id="auth-loading" class="login-loading">Verificando sesión…</div>
+
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-brand"><i class="fa-solid fa-building-columns"></i> Libro de Cuentas</div>
+    <p class="login-sub" id="login-sub-text">Ingresá con tu email para ver los préstamos y ventas.</p>
+    <div id="login-error" class="login-error"></div>
+    <div id="login-success" class="login-success"></div>
+
+    <form id="login-form" onsubmit="submitLogin(event)">
+      <div class="field"><label>Email</label><input name="email" type="email" required autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input name="password" type="password" required autocomplete="current-password"></div>
+      <button type="submit" class="btn btn-solid" style="width:100%;">Ingresar</button>
+      <div style="text-align:center;margin-top:12px;font-size:12.5px;">
+        <a href="#" onclick="switchLoginMode('forgot');return false;" style="color:var(--paper-dim);text-decoration:none;">¿Olvidaste tu contraseña?</a>
+      </div>
+    </form>
+
+    <form id="register-form" onsubmit="submitRegister(event)" style="display:none;">
+      <div class="field"><label>Email</label><input name="email" type="email" required autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input name="password" type="password" required minlength="6" autocomplete="new-password"></div>
+      <div class="field"><label>Repetir contraseña</label><input name="password2" type="password" required minlength="6" autocomplete="new-password"></div>
+      <button type="submit" class="btn btn-solid" style="width:100%;">Crear cuenta</button>
+    </form>
+
+    <form id="forgot-form" onsubmit="submitForgotPassword(event)" style="display:none;">
+      <p style="font-size:12.5px;color:var(--paper-dim);margin:0 0 14px;">Ingresá tu email y te mandamos un enlace para elegir una contraseña nueva.</p>
+      <div class="field"><label>Email</label><input name="email" type="email" required autocomplete="username"></div>
+      <button type="submit" class="btn btn-solid" style="width:100%;">Enviar enlace de recuperación</button>
+    </form>
+
+    <div style="text-align:center;margin-top:16px;font-size:12.5px;color:var(--paper-dim);">
+      <span id="toggle-login-text">¿No tenés cuenta? <a href="#" onclick="switchLoginMode('register');return false;" style="color:var(--brass-bright);font-weight:600;text-decoration:none;">Registrate</a></span>
+      <span id="toggle-register-text" style="display:none;">¿Ya tenés cuenta? <a href="#" onclick="switchLoginMode('login');return false;" style="color:var(--brass-bright);font-weight:600;text-decoration:none;">Iniciá sesión</a></span>
+      <span id="toggle-forgot-text" style="display:none;">¿Te acordaste? <a href="#" onclick="switchLoginMode('login');return false;" style="color:var(--brass-bright);font-weight:600;text-decoration:none;">Iniciá sesión</a></span>
+    </div>
+  </div>
+</div>
+
+<div class="app-shell" id="app-shell" style="display:none;">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main" id="main">
+    <div class="search-wrap">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input id="search-input" placeholder="Buscar cliente por nombre o DNI…" oninput="onSearch(this.value)">
+    </div>
+    <div id="content"></div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast" class="toast" style="display:none;"></div>
+
+<script>
+/* ================= FIREBASE ================= */
+// Pegá acá las credenciales que te da Firebase en "Configuración del proyecto" → "Tus apps".
+const firebaseConfig = {
+  apiKey: "AIzaSyDiylnQI-beyHA2zMfPRRmx9QM-UBlqMtk",
+  authDomain: "prestamostuc-58be2.firebaseapp.com",
+  projectId: "prestamostuc-58be2",
+  storageBucket: "prestamostuc-58be2.firebasestorage.app",
+  messagingSenderId: "157581400168",
+  appId: "1:157581400168:web:90f4e2d4d313afabef83dd"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+// No mantener la sesión abierta entre visitas: pide usuario y contraseña cada vez que se abre el archivo.
+auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+const db = firebase.firestore();
+
+/* ================= ESTADO ================= */
+let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6 };
+
+/* ================= UTILIDADES ================= */
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+function addMonths(dateStr, n){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setMonth(d.getMonth() + n);
+  return d.toISOString().slice(0, 10);
+}
+function formatDate(dateStr){
+  if(!dateStr) return '-';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+function formatMoney(n){
+  const v = Number(n) || 0;
+  return '$ ' + v.toLocaleString('es-AR', { minimumFractionDigits:0, maximumFractionDigits:2 });
+}
+function daysBetween(a, b){
+  return Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
+}
+function genCuotas(startDate, numCuotas, totalAmount){
+  const base = Math.floor((totalAmount / numCuotas) * 100) / 100;
+  const cuotas = [];
+  let acumulado = 0;
+  for(let i = 1; i <= numCuotas; i++){
+    let amount = base;
+    if(i === numCuotas) amount = Math.round((totalAmount - acumulado) * 100) / 100;
+    acumulado += amount;
+    cuotas.push({ n:i, dueDate: addMonths(startDate, i), amount, paidAmount:0, paid:false, paidDate:null });
+  }
+  return cuotas;
+}
+function cuotaEstado(cuota){
+  if(cuota.paid) return 'pagada';
+  const t = todayStr();
+  if(cuota.dueDate < t) return 'vencida';
+  if(daysBetween(cuota.dueDate, t) <= 7) return 'proxima';
+  return 'pendiente';
+}
+function itemEstado(item){
+  if(item.refinanciadoEnId) return 'refinanciado';
+  const estados = item.cuotas.map(cuotaEstado);
+  if(estados.length === 0 || estados.every(e => e === 'pagada')) return 'finalizado';
+  if(estados.includes('vencida')) return 'vencido';
+  if(estados.includes('proxima')) return 'proximo';
+  return 'aldia';
+}
+function itemSaldoPendiente(item){
+  if(item.refinanciadoEnId) return 0;
+  return item.cuotas.reduce((acc, c) => acc + (c.amount - c.paidAmount) + calcRecargoMora(c, item), 0);
+}
+function calcRecargoMora(cuota, item){
+  if(item.refinanciadoEnId) return 0;
+  const percent = Number(item.moraPercent) || 0;
+  if(percent <= 0) return 0;
+  if(cuotaEstado(cuota) !== 'vencida') return 0;
+  const diasAtraso = daysBetween(todayStr(), cuota.dueDate);
+  const mesesAtraso = Math.max(1, Math.ceil(diasAtraso / 30));
+  const pendiente = cuota.amount - cuota.paidAmount;
+  return Math.round(pendiente * (percent / 100) * mesesAtraso * 100) / 100;
+}
+function cuotaActualLabel(item){
+  if(item.cuotas.length === 0) return '-';
+  const idx = item.cuotas.findIndex(c => !c.paid);
+  if(idx === -1) return `${item.cuotas.length}/${item.cuotas.length}`;
+  return `${idx + 1}/${item.cuotas.length}`;
+}
+
+const STATUS_STYLE = {
+  aldia:        { label:'Al día',              css:'background:#F1EFE9;color:#69747C;border-color:#D2CDBF;' },
+  proximo:      { label:'Próximo a vencer',    css:'background:#FEF3E2;color:#854F0B;border-color:#FAC775;' },
+  vencido:      { label:'Vencido',             css:'background:#FDEDEC;color:#A32D2D;border-color:#F7C1C1;' },
+  finalizado:   { label:'Finalizado',          css:'background:#f0fdf4;color:#166534;border-color:#bbf7d0;' },
+  refinanciado: { label:'Refinanciado',        css:'background:#EEEDFE;color:#463ACB;border-color:#CECBF6;' }
+};
+function statusPill(key){
+  const s = STATUS_STYLE[key];
+  const icon = key === 'vencido' ? '<i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> ' : '';
+  return `<span class="pill" style="${s.css}">${icon}${s.label}</span>`;
+}
+
+function esc(str){
+  return String(str ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ================= PERSISTENCIA (Firestore) ================= */
+// Todos los usuarios logueados leen y escriben los mismos 3 documentos:
+// data/clients, data/loans, data/sales — cada uno guarda un array bajo el campo "items".
+async function safeGet(key){
+  try{
+    const snap = await db.collection('data').doc(key).get();
+    return snap.exists ? (snap.data().items || null) : null;
+  }catch(e){ console.error(e); return null; }
+}
+async function persist(key, data){
+  try{
+    await db.collection('data').doc(key).set({
+      items: data,
+      updatedBy: auth.currentUser ? auth.currentUser.email : null,
+      updatedAt: new Date().toISOString()
+    });
+  }catch(e){ console.error(e); showToast('No se pudo guardar. Revisá tu conexión.'); }
+}
+async function loadAll(){
+  STATE.loading = true; render();
+  const [c, l, s] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales')]);
+  STATE.clients = c || []; STATE.loans = l || []; STATE.sales = s || [];
+  STATE.loading = false;
+  render();
+}
+
+/* ================= AUTENTICACIÓN ================= */
+function switchLoginMode(mode){
+  document.getElementById('login-error').style.display = 'none';
+  document.getElementById('login-success').style.display = 'none';
+  document.getElementById('login-form').style.display = mode === 'login' ? 'block' : 'none';
+  document.getElementById('register-form').style.display = mode === 'register' ? 'block' : 'none';
+  document.getElementById('forgot-form').style.display = mode === 'forgot' ? 'block' : 'none';
+  document.getElementById('toggle-login-text').style.display = mode === 'login' ? 'inline' : 'none';
+  document.getElementById('toggle-register-text').style.display = mode === 'register' ? 'inline' : 'none';
+  document.getElementById('toggle-forgot-text').style.display = mode === 'forgot' ? 'inline' : 'none';
+  document.getElementById('login-sub-text').textContent =
+    mode === 'register' ? 'Creá tu cuenta para empezar a usar el sistema.' :
+    mode === 'forgot' ? 'Vamos a mandarte un email para que elijas una contraseña nueva.' :
+    'Ingresá con tu email para ver los préstamos y ventas.';
+}
+function submitLogin(e){
+  e.preventDefault();
+  const f = e.target;
+  const btn = f.querySelector('button[type=submit]');
+  const errorBox = document.getElementById('login-error');
+  errorBox.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Ingresando…';
+  auth.signInWithEmailAndPassword(f.email.value.trim(), f.password.value)
+    .catch(err => {
+      errorBox.textContent = 'Email o contraseña incorrectos.';
+      errorBox.style.display = 'block';
+    })
+    .finally(() => { btn.disabled = false; btn.textContent = 'Ingresar'; });
+}
+function submitForgotPassword(e){
+  e.preventDefault();
+  const f = e.target;
+  const btn = f.querySelector('button[type=submit]');
+  const errorBox = document.getElementById('login-error');
+  const successBox = document.getElementById('login-success');
+  errorBox.style.display = 'none';
+  successBox.style.display = 'none';
+  const email = f.email.value.trim();
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  auth.sendPasswordResetEmail(email)
+    .then(() => {
+      successBox.textContent = `Te mandamos un email a ${email} con el enlace para elegir una contraseña nueva. Revisá también la carpeta de spam.`;
+      successBox.style.display = 'block';
+      f.reset();
+    })
+    .catch(err => {
+      errorBox.textContent = err.code === 'auth/user-not-found'
+        ? 'No hay ninguna cuenta registrada con ese email.'
+        : 'No se pudo enviar el email. Revisá que esté bien escrito e intentá de nuevo.';
+      errorBox.style.display = 'block';
+    })
+    .finally(() => { btn.disabled = false; btn.textContent = 'Enviar enlace de recuperación'; });
+}
+function submitRegister(e){
+  e.preventDefault();
+  const f = e.target;
+  const errorBox = document.getElementById('login-error');
+  errorBox.style.display = 'none';
+  if(f.password.value !== f.password2.value){
+    errorBox.textContent = 'Las contraseñas no coinciden.';
+    errorBox.style.display = 'block';
+    return;
+  }
+  const btn = f.querySelector('button[type=submit]');
+  btn.disabled = true; btn.textContent = 'Creando cuenta…';
+  auth.createUserWithEmailAndPassword(f.email.value.trim(), f.password.value)
+    .catch(err => {
+      errorBox.textContent = err.code === 'auth/email-already-in-use'
+        ? 'Ese email ya tiene una cuenta creada. Iniciá sesión.'
+        : err.code === 'auth/weak-password'
+        ? 'La contraseña tiene que tener al menos 6 caracteres.'
+        : 'No se pudo crear la cuenta. Probá de nuevo.';
+      errorBox.style.display = 'block';
+    })
+    .finally(() => { btn.disabled = false; btn.textContent = 'Crear cuenta'; });
+  // createUserWithEmailAndPassword deja la sesión iniciada automáticamente si sale bien,
+  // así que onAuthStateChanged se encarga de mostrar la app.
+}
+function logout(){
+  if(!confirm('¿Cerrar sesión?')) return;
+  auth.signOut();
+}
+auth.onAuthStateChanged(user => {
+  document.getElementById('auth-loading').style.display = 'none';
+  if(user){
+    STATE.userEmail = user.email;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-shell').style.display = 'grid';
+    loadAll();
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app-shell').style.display = 'none';
+  }
+});
+
+function findOrCreateClient(name, phone, dni, address){
+  const existing = STATE.clients.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if(existing){
+    if(phone && !existing.phone) existing.phone = phone;
+    if(dni && !existing.dni) existing.dni = dni;
+    if(address && !existing.address) existing.address = address;
+    return existing;
+  }
+  const c = { id: genId(), name, phone: phone || '', dni: dni || '', address: address || '' };
+  STATE.clients = [...STATE.clients, c];
+  return c;
+}
+
+/* ================= ACCIONES ================= */
+async function saveLoan(data){
+  const client = findOrCreateClient(data.clientName, data.phone, data.dni, data.address);
+  const total = Math.round(data.amount * (1 + data.percent / 100) * 100) / 100;
+  const loan = { id: genId(), clientId: client.id, clientName: client.name, amount: data.amount, date: data.date, percent: data.percent, moraPercent: data.moraPercent || 0, garantia: data.garantia || '', totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total) };
+  STATE.loans = [loan, ...STATE.loans];
+  await persist('clients', STATE.clients); await persist('loans', STATE.loans);
+  closeModal(); render();
+}
+async function saveSale(data){
+  const client = findOrCreateClient(data.clientName, data.phone, data.dni, data.address);
+  const financed = Math.max(data.price - data.anticipo, 0);
+  const sale = { id: genId(), clientId: client.id, clientName: client.name, article: data.article, price: data.price, anticipo: data.anticipo, date: data.date, paymentMethod: data.paymentMethod, moraPercent: data.moraPercent || 0, cuotas: financed > 0 ? genCuotas(data.date, data.numCuotas, financed) : [] };
+  STATE.sales = [sale, ...STATE.sales];
+  await persist('clients', STATE.clients); await persist('sales', STATE.sales);
+  closeModal(); render();
+}
+async function registerPayment(type, id, cuotaIndex, amount, date){
+  const sourceArr = type === 'loan' ? STATE.loans : STATE.sales;
+  const oldItem = sourceArr.find(it => it.id === id);
+  const recargoAntes = calcRecargoMora(oldItem.cuotas[cuotaIndex], oldItem);
+  const apply = arr => arr.map(it => {
+    if(it.id !== id) return it;
+    const cuotas = it.cuotas.map((c, i) => {
+      if(i !== cuotaIndex) return c;
+      const paidAmount = Math.round((c.paidAmount + amount) * 100) / 100;
+      return { ...c, paidAmount, paid: paidAmount >= c.amount - 0.01, paidDate: date };
+    });
+    return { ...it, cuotas };
+  });
+  if(type === 'loan'){ STATE.loans = apply(STATE.loans); await persist('loans', STATE.loans); }
+  else{ STATE.sales = apply(STATE.sales); await persist('sales', STATE.sales); }
+  const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
+  const cuota = item.cuotas[cuotaIndex];
+  render();
+  openReceiptModal(type, item, cuota, amount, date, recargoAntes);
+}
+async function deleteLoan(id){
+  if(!confirm('¿Eliminar este préstamo?')) return;
+  STATE.loans = STATE.loans.filter(l => l.id !== id);
+  await persist('loans', STATE.loans); render();
+}
+async function deleteSale(id){
+  if(!confirm('¿Eliminar esta venta?')) return;
+  STATE.sales = STATE.sales.filter(s => s.id !== id);
+  await persist('sales', STATE.sales); render();
+}
+async function deleteClient(id){
+  const client = STATE.clients.find(c => c.id === id);
+  if(!client) return;
+  const cLoans = STATE.loans.filter(l => l.clientId === id).length;
+  const cSales = STATE.sales.filter(s => s.clientId === id).length;
+  const detalle = (cLoans || cSales) ? ` Esto también va a borrar ${cLoans} préstamo(s) y ${cSales} venta(s) suyas, con todo su historial de pagos.` : '';
+  if(!confirm(`¿Eliminar a ${client.name}?${detalle} Esta acción no se puede deshacer.`)) return;
+  STATE.clients = STATE.clients.filter(c => c.id !== id);
+  STATE.loans = STATE.loans.filter(l => l.clientId !== id);
+  STATE.sales = STATE.sales.filter(s => s.clientId !== id);
+  await persist('clients', STATE.clients);
+  await persist('loans', STATE.loans);
+  await persist('sales', STATE.sales);
+  if(STATE.selectedClientId === id) STATE.selectedClientId = null;
+  render();
+  showToast('Cliente eliminado');
+}
+async function deleteAllClients(){
+  if(STATE.clients.length === 0) return;
+  const step1 = confirm(`Esto va a borrar TODOS los clientes (${STATE.clients.length}) y TODOS sus préstamos y ventas, sin excepción. No se puede deshacer. ¿Continuar?`);
+  if(!step1) return;
+  const step2 = prompt('Para confirmar, escribí BORRAR TODO (en mayúsculas) y aceptá:');
+  if(step2 !== 'BORRAR TODO'){ showToast('Cancelado — no se borró nada'); return; }
+  STATE.clients = []; STATE.loans = []; STATE.sales = [];
+  await persist('clients', STATE.clients);
+  await persist('loans', STATE.loans);
+  await persist('sales', STATE.sales);
+  STATE.selectedClientId = null;
+  render();
+  showToast('Se eliminaron todos los clientes');
+}
+async function refinanceItem(oldType, oldId, data){
+  const oldArr = oldType === 'loan' ? STATE.loans : STATE.sales;
+  const oldItem = oldArr.find(it => it.id === oldId);
+  if(!oldItem) return;
+  const total = Math.round(data.amount * (1 + data.percent / 100) * 100) / 100;
+  const newLoan = {
+    id: genId(), clientId: oldItem.clientId, clientName: oldItem.clientName,
+    amount: data.amount, date: data.date, percent: data.percent,
+    moraPercent: data.moraPercent || 0, garantia: data.garantia || '',
+    totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total),
+    refinanciaDeId: oldId, refinanciaDeTipo: oldType,
+    refinanciaDeInfo: `${oldType === 'loan' ? 'préstamo' : 'venta'} del ${formatDate(oldItem.date)}`
+  };
+  STATE.loans = [newLoan, ...STATE.loans];
+  if(oldType === 'loan'){
+    STATE.loans = STATE.loans.map(l => l.id === oldId ? { ...l, refinanciadoEnId: newLoan.id, refinanciadoEnFecha: data.date } : l);
+    await persist('loans', STATE.loans);
+  } else {
+    STATE.sales = STATE.sales.map(s => s.id === oldId ? { ...s, refinanciadoEnId: newLoan.id, refinanciadoEnFecha: data.date } : s);
+    await persist('loans', STATE.loans);
+    await persist('sales', STATE.sales);
+  }
+  closeModal(); render();
+  showToast('Refinanciación creada como préstamo nuevo');
+}
+
+function goTab(tab){ STATE.tab = tab; STATE.selectedClientId = null; render(); }
+function onSearch(v){ STATE.search = v; STATE.tab = 'clientes'; STATE.selectedClientId = null; render(true); }
+function onClientFilterChange(v){ STATE.clientFilter = v; render(true); }
+function toggleExpand(id){ STATE.expanded = STATE.expanded === id ? null : id; render(); }
+function openClient(id){ STATE.selectedClientId = id; render(); }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.style.display = 'none', 2600);
+}
+
+/* ================= DATOS DERIVADOS ================= */
+function getAllDue(){
+  const items = [];
+  STATE.loans.forEach(l => { if(l.refinanciadoEnId) return; l.cuotas.forEach((c, i) => { if(!c.paid) items.push({ type:'loan', item:l, cuotaIndex:i, cuota:c, estado: cuotaEstado(c) }); }); });
+  STATE.sales.forEach(s => { if(s.refinanciadoEnId) return; s.cuotas.forEach((c, i) => { if(!c.paid) items.push({ type:'sale', item:s, cuotaIndex:i, cuota:c, estado: cuotaEstado(c) }); }); });
+  return items.sort((a, b) => a.cuota.dueDate.localeCompare(b.cuota.dueDate));
+}
+function getStats(){
+  const activeLoans = STATE.loans.filter(l => !l.refinanciadoEnId);
+  const activeSales = STATE.sales.filter(s => !s.refinanciadoEnId);
+
+  const enCalle = STATE.loans.reduce((acc, l) => acc + itemSaldoPendiente(l), 0);
+  const gananciaInteres = STATE.loans.reduce((acc, l) => acc + (l.totalToReturn - l.amount), 0);
+  const moraPrestamos = activeLoans.reduce((acc, l) => acc + l.cuotas.reduce((a, c) => a + calcRecargoMora(c, l), 0), 0);
+  const vencidasPrestamos = activeLoans.reduce((acc, l) => acc + l.cuotas.filter(c => cuotaEstado(c) === 'vencida').length, 0);
+
+  const porCobrarVentas = STATE.sales.reduce((acc, s) => acc + itemSaldoPendiente(s), 0);
+  const financiadoArticulos = STATE.sales.reduce((acc, s) => acc + Math.max(s.price - s.anticipo, 0), 0);
+  const moraVentas = activeSales.reduce((acc, s) => acc + s.cuotas.reduce((a, c) => a + calcRecargoMora(c, s), 0), 0);
+  const vencidasVentas = activeSales.reduce((acc, s) => acc + s.cuotas.filter(c => cuotaEstado(c) === 'vencida').length, 0);
+
+  const moraAcumulada = moraPrestamos + moraVentas;
+  return {
+    enCalle, gananciaInteres, moraPrestamos, vencidasPrestamos,
+    porCobrarVentas, financiadoArticulos, moraVentas, vencidasVentas,
+    moraAcumulada
+  };
+}
+function getMonthlyStats(nMonths){
+  const now = new Date();
+  const months = [];
+  for(let i = nMonths - 1; i >= 0; i--){
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }) });
+  }
+  const keyIndex = {}; months.forEach((m, i) => keyIndex[m.key] = i);
+  const prestado = months.map(() => 0);
+  const cobrado = months.map(() => 0);
+  const mora = months.map(() => 0);
+
+  const processItem = (it) => {
+    it.cuotas.forEach(c => {
+      if(c.paidDate){
+        const pk = c.paidDate.slice(0, 7);
+        if(keyIndex[pk] !== undefined) cobrado[keyIndex[pk]] += c.paidAmount;
+      }
+      const mk = c.dueDate.slice(0, 7);
+      if(keyIndex[mk] !== undefined) mora[keyIndex[mk]] += calcRecargoMora(c, it);
+    });
+  };
+  STATE.loans.forEach(l => {
+    const k = l.date.slice(0, 7);
+    if(keyIndex[k] !== undefined) prestado[keyIndex[k]] += l.amount;
+    processItem(l);
+  });
+  STATE.sales.forEach(s => processItem(s));
+
+  return { labels: months.map(m => m.label), prestado, cobrado, mora };
+}
+function getFilteredClients(){
+  const q = STATE.search.trim().toLowerCase();
+  let list = STATE.clients;
+  if(q) list = list.filter(c => c.name.toLowerCase().includes(q) || (c.dni && c.dni.includes(q)));
+  let result = list.map(c => {
+    const cLoans = STATE.loans.filter(l => l.clientId === c.id);
+    const cSales = STATE.sales.filter(s => s.clientId === c.id);
+    const saldo = cLoans.reduce((a, l) => a + itemSaldoPendiente(l), 0) + cSales.reduce((a, s) => a + itemSaldoPendiente(s), 0);
+    const moroso = [...cLoans, ...cSales].some(it => itemEstado(it) === 'vencido');
+    const tieneOperaciones = cLoans.length > 0 || cSales.length > 0;
+    return { ...c, cLoans, cSales, saldo, moroso, tieneOperaciones };
+  });
+  if(STATE.clientFilter === 'debe') result = result.filter(c => c.saldo > 0.01);
+  else if(STATE.clientFilter === 'finalizado') result = result.filter(c => c.tieneOperaciones && c.saldo <= 0.01);
+  return result.sort((a, b) => (b.moroso - a.moroso) || a.name.localeCompare(b.name));
+}
+
+/* ================= RENDER: SIDEBAR ================= */
+function renderSidebar(){
+  const due = getAllDue();
+  const pendCount = due.filter(d => d.estado === 'vencida' || d.estado === 'proxima').length;
+  const item = (tab, icon, label, dot) => `
+    <div class="nav-item ${STATE.tab === tab ? 'active' : ''}" onclick="goTab('${tab}')">
+      <i class="fa-solid ${icon}"></i> ${label} ${dot ? '<span class="dot"></span>' : ''}
+    </div>`;
+  document.getElementById('sidebar').innerHTML = `
+    <div class="sidebar-brand"><i class="fa-solid fa-building-columns"></i> Libro de Cuentas</div>
+    <div class="nav-group">
+      <div class="nav-group-label">Principal</div>
+      ${item('dashboard', 'fa-gauge', 'Dashboard')}
+      ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0)}
+      ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
+      ${item('ventas', 'fa-cart-shopping', 'Artículos')}
+      ${item('clientes', 'fa-users', 'Clientes')}
+      ${item('evolucion', 'fa-chart-line', 'Evolución')}
+    </div>
+    <div class="sidebar-foot">
+      <div class="agname">${STATE.clients.length} clientes cargados</div>
+      <div>${STATE.loans.length} préstamos · ${STATE.sales.length} ventas</div>
+      <div class="sidebar-user">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(STATE.userEmail)}</span>
+        <span class="logout-btn" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket"></i></span>
+      </div>
+    </div>
+  `;
+}
+
+/* ================= RENDER: TABLAS AUXILIARES ================= */
+function renderDueTable(rows){
+  if(rows.length === 0) return '';
+  return `
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:8px;">
+      <table>
+        <thead><tr><th>Cliente</th><th>Detalle</th><th>Cuota</th><th>Vence</th><th>Monto</th></tr></thead>
+        <tbody>
+          ${rows.map(d => {
+            const recargo = calcRecargoMora(d.cuota, d.item);
+            return `
+            <tr>
+              <td style="font-weight:600;">${esc(d.item.clientName)}</td>
+              <td style="color:var(--paper-dim);">${d.type === 'loan' ? 'Préstamo' : esc(d.item.article)}</td>
+              <td>${d.cuota.n}/${d.item.cuotas.length}</td>
+              <td>${formatDate(d.cuota.dueDate)}</td>
+              <td style="font-weight:600;">${formatMoney(d.cuota.amount - d.cuota.paidAmount + recargo)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;font-weight:400;margin-top:2px;">incluye ${formatMoney(recargo)} de mora</div>` : ''}</td>
+            </tr>
+          `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderCuotasTable(item, type){
+  return `
+    <table class="cuotas-table">
+      <thead><tr><th>Cuota</th><th>Vence</th><th>Monto</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+        ${item.cuotas.map((c, i) => {
+          const est = cuotaEstado(c);
+          const key = est === 'vencida' ? 'vencido' : est === 'proxima' ? 'proximo' : est === 'pagada' ? 'finalizado' : 'aldia';
+          const recargo = calcRecargoMora(c, item);
+          return `
+            <tr>
+              <td>${c.n}/${item.cuotas.length}</td>
+              <td>${formatDate(c.dueDate)}</td>
+              <td>${formatMoney(c.amount)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;margin-top:2px;">+ ${formatMoney(recargo)} mora</div>` : ''}</td>
+              <td>${statusPill(key)}</td>
+              <td style="text-align:right;">${!c.paid ? `<button class="btn btn-sm" onclick="event.stopPropagation();openPayModal('${type}','${item.id}',${i})">Registrar pago</button>` : ''}</td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderItemCard(item, type){
+  const estado = itemEstado(item);
+  const saldo = itemSaldoPendiente(item);
+  const expanded = STATE.expanded === item.id;
+  const metaLine = type === 'loan'
+    ? `Préstamo ${formatMoney(item.amount)} · ${item.percent}% · desde ${formatDate(item.date)}`
+    : `${esc(item.article)} · anticipo ${formatMoney(item.anticipo)} · ${esc(item.paymentMethod)}`;
+  const delFn = type === 'loan' ? 'deleteLoan' : 'deleteSale';
+  const puedeRefinanciar = !item.refinanciadoEnId && saldo > 0.01;
+  return `
+    <div class="card item-card">
+      <div class="head" onclick="toggleExpand('${item.id}')">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="name">${esc(item.clientName)}</span>
+            ${statusPill(estado)}
+          </div>
+          <div class="meta">${metaLine}</div>
+          ${type === 'loan' && item.garantia ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-shield-halved" style="margin-right:5px;color:var(--paper-dim);"></i>Garantía: ${esc(item.garantia)}</div>` : ''}
+          ${item.refinanciadoEnId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Refinanciado el ${formatDate(item.refinanciadoEnFecha)} → se convirtió en un préstamo nuevo</div>` : ''}
+          ${item.refinanciaDeId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Viene de refinanciar el ${esc(item.refinanciaDeInfo || '')}</div>` : ''}
+          <div class="cuota-line">Cuota ${cuotaActualLabel(item)} · saldo pendiente <b>${formatMoney(saldo)}</b></div>
+        </div>
+        <div class="item-actions">
+          ${puedeRefinanciar ? `<button class="btn btn-sm" onclick="event.stopPropagation();openRefinanceModal('${type}','${item.id}')"><i class="fa-solid fa-rotate" style="margin-right:4px;"></i>Refinanciar</button>` : ''}
+          <button class="btn btn-ghost" style="color:#E2726B;" onclick="event.stopPropagation();${delFn}('${item.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button>
+          <i class="fa-solid fa-chevron-${expanded ? 'down' : 'right'}" style="color:var(--paper-dim);"></i>
+        </div>
+      </div>
+      ${expanded ? renderCuotasTable(item, type) : ''}
+    </div>`;
+}
+
+/* ================= RENDER: VISTAS ================= */
+function renderDashboard(){
+  const due = getAllDue();
+  const vencidas = due.filter(d => d.estado === 'vencida');
+  const proximas = due.filter(d => d.estado === 'proxima');
+  const stats = getStats();
+  return `
+    <div class="main-head"><div><h1>Dashboard</h1><p class="sub">Resumen de préstamos, artículos y vencimientos</p></div></div>
+
+    <div class="eyebrow" style="margin-bottom:8px;"><i class="fa-solid fa-sack-dollar"></i> Préstamos</div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('enCalle')">+</button><div class="lbl">En la calle</div><div class="val">${formatMoney(stats.enCalle)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('interesProyectado')">+</button><div class="lbl">Interés proyectado</div><div class="val sage">${formatMoney(stats.gananciaInteres)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('moraPrestamos')">+</button><div class="lbl">Recargos por mora</div><div class="val brick">${formatMoney(stats.moraPrestamos)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('vencidasPrestamos')">+</button><div class="lbl">Cuotas vencidas</div><div class="val brick">${stats.vencidasPrestamos}</div></div>
+    </div>
+
+    <div class="eyebrow" style="margin:20px 0 8px;"><i class="fa-solid fa-cart-shopping"></i> Artículos</div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('financiadoArticulos')">+</button><div class="lbl">Financiado (total)</div><div class="val">${formatMoney(stats.financiadoArticulos)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('porCobrarArticulos')">+</button><div class="lbl">Por cobrar</div><div class="val">${formatMoney(stats.porCobrarVentas)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('moraArticulos')">+</button><div class="lbl">Recargos por mora</div><div class="val brick">${formatMoney(stats.moraVentas)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('vencidasArticulos')">+</button><div class="lbl">Cuotas vencidas</div><div class="val brick">${stats.vencidasVentas}</div></div>
+    </div>
+
+    <div style="margin-top:24px;">
+    ${vencidas.length > 0 ? `<div class="eyebrow" style="color:#A32D2D;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Vencidas</div>${renderDueTable(vencidas)}` : ''}
+    ${proximas.length > 0 ? `<div class="eyebrow" style="color:#854F0B;margin:20px 0 8px;"><i class="fa-regular fa-clock"></i> Próximas a vencer (7 días)</div>${renderDueTable(proximas)}` : ''}
+    ${vencidas.length === 0 && proximas.length === 0 ? `<div class="card empty-row">No hay cuotas vencidas ni próximas a vencer.</div>` : ''}
+    </div>
+  `;
+}
+
+function renderEvolucion(){
+  const stats = getMonthlyStats(STATE.evolucionMeses);
+  const totalPrestado = stats.prestado.reduce((a, b) => a + b, 0);
+  const totalCobrado = stats.cobrado.reduce((a, b) => a + b, 0);
+  const totalMora = stats.mora.reduce((a, b) => a + b, 0);
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Evolución</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Cuánto prestaste, cuánto cobraste y la mora acumulada, mes a mes</p></div>
+      <select onchange="onEvolucionMesesChange(this.value)" style="width:auto;min-width:160px;">
+        <option value="3" ${STATE.evolucionMeses === 3 ? 'selected' : ''}>Últimos 3 meses</option>
+        <option value="6" ${STATE.evolucionMeses === 6 ? 'selected' : ''}>Últimos 6 meses</option>
+        <option value="12" ${STATE.evolucionMeses === 12 ? 'selected' : ''}>Últimos 12 meses</option>
+      </select>
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('evoPrestado')">+</button><div class="lbl">Prestado (préstamos)</div><div class="val">${formatMoney(totalPrestado)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('evoCobrado')">+</button><div class="lbl">Cobrado (préstamos + ventas)</div><div class="val sage">${formatMoney(totalCobrado)}</div></div>
+      <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('evoMora')">+</button><div class="lbl">Mora acumulada</div><div class="val brick">${formatMoney(totalMora)}</div></div>
+    </div>
+    <div class="card" style="padding:20px;">
+      <canvas id="evolucion-chart" height="100"></canvas>
+    </div>
+    <div style="font-size:12px;color:var(--paper-dim);margin-top:10px;">
+      "Prestado" toma la fecha en que diste cada préstamo. "Cobrado" toma la fecha en que se registró cada pago (incluye préstamos y ventas). "Mora" es el recargo acumulado hoy en cuotas vencidas, agrupado por el mes en que vencieron.
+    </div>
+  `;
+}
+function onEvolucionMesesChange(v){ STATE.evolucionMeses = Number(v); render(); }
+function initEvolucionChart(){
+  const canvas = document.getElementById('evolucion-chart');
+  if(!canvas || typeof Chart === 'undefined') return;
+  const stats = getMonthlyStats(STATE.evolucionMeses);
+  if(window._evolucionChart) window._evolucionChart.destroy();
+  window._evolucionChart = new Chart(canvas.getContext('2d'), {
+    data: {
+      labels: stats.labels,
+      datasets: [
+        { type: 'bar', label: 'Prestado', data: stats.prestado, backgroundColor: '#5B4FE0', borderRadius: 2, order: 2 },
+        { type: 'bar', label: 'Cobrado', data: stats.cobrado, backgroundColor: '#3F7A46', borderRadius: 2, order: 2 },
+        { type: 'line', label: 'Mora acumulada', data: stats.mora, borderColor: '#A94E30', backgroundColor: '#A94E30', tension: 0.3, order: 1, pointRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: 'Lato' }, color: '#1C2B36' } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { family: 'Lato' }, color: '#69747C' } },
+        y: { ticks: { font: { family: 'Lato' }, color: '#69747C', callback: (v) => '$' + v.toLocaleString('es-AR') }, grid: { color: '#E4E1D8' } }
+      }
+    }
+  });
+}
+
+function renderNotificaciones(){
+  const due = getAllDue().filter(d => d.estado === 'vencida' || d.estado === 'proxima');
+  return `
+    <div class="main-head"><div><h1>Notificaciones</h1><p class="sub">Avisos de cuotas vencidas y próximas a vencer, listos para mandarle un recordatorio al cliente</p></div></div>
+    ${due.length === 0 ? `<div class="card empty-row">No hay avisos por ahora. Cuando una cuota esté por vencer (7 días o menos) o vencida, va a aparecer acá.</div>` : due.map(renderNotifCard).join('')}
+  `;
+}
+
+function renderNotifCard(d){
+  const recargo = calcRecargoMora(d.cuota, d.item);
+  const monto = formatMoney(d.cuota.amount - d.cuota.paidAmount + recargo);
+  const vencida = d.estado === 'vencida';
+  let msg;
+  if(vencida){
+    const dias = daysBetween(todayStr(), d.cuota.dueDate);
+    msg = `La cuota ${d.cuota.n}/${d.item.cuotas.length} de <b>${esc(d.item.clientName)}</b> está vencida hace ${dias} día${dias === 1 ? '' : 's'} — debe ${monto}.`;
+  } else {
+    const dias = daysBetween(d.cuota.dueDate, todayStr());
+    msg = dias <= 0
+      ? `<b>${esc(d.item.clientName)}</b> debe pagar hoy la cuota ${d.cuota.n}/${d.item.cuotas.length} — ${monto}.`
+      : `En ${dias} día${dias === 1 ? '' : 's'}, <b>${esc(d.item.clientName)}</b> debe pagar la cuota ${d.cuota.n}/${d.item.cuotas.length} — ${monto}.`;
+  }
+  const icon = vencida ? 'fa-triangle-exclamation' : 'fa-bell';
+  const iconColor = vencida ? '#A32D2D' : '#854F0B';
+  return `
+    <div class="card" style="margin-bottom:10px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+      <i class="fa-solid ${icon}" style="color:${iconColor};font-size:16px;margin-top:2px;"></i>
+      <div style="flex:1;min-width:200px;">
+        <div style="font-size:14px;line-height:1.5;">${msg}</div>
+        <div style="font-size:12px;color:var(--paper-dim);margin-top:4px;">${d.type === 'loan' ? 'Préstamo' : esc(d.item.article)} · vence ${formatDate(d.cuota.dueDate)}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="openReminderModal('${d.type}','${d.item.id}',${d.cuotaIndex})"><i class="fa-brands fa-whatsapp" style="margin-right:4px;"></i>Recordar</button>
+      </div>
+    </div>`;
+}
+
+function renderPrestamos(){
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Préstamos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.loans.length} préstamos cargados</p></div>
+      <button class="btn btn-solid" onclick="openLoanModal()"><i class="fa-solid fa-plus"></i>Nuevo préstamo</button>
+    </div>
+    ${STATE.loans.length === 0 ? `<div class="card empty-row">Todavía no cargaste préstamos.</div>` : STATE.loans.map(l => renderItemCard(l, 'loan')).join('')}
+  `;
+}
+function renderVentas(){
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Artículos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.sales.length} artículos vendidos financiados</p></div>
+      <button class="btn btn-solid" onclick="openSaleModal()"><i class="fa-solid fa-plus"></i>Nueva venta</button>
+    </div>
+    ${STATE.sales.length === 0 ? `<div class="card empty-row">Todavía no cargaste ventas de artículos.</div>` : STATE.sales.map(s => renderItemCard(s, 'sale')).join('')}
+  `;
+}
+function renderClientesList(){
+  const list = getFilteredClients();
+  const filterSelect = `
+    <select onchange="onClientFilterChange(this.value)" style="width:auto;min-width:200px;">
+      <option value="todos" ${STATE.clientFilter === 'todos' ? 'selected' : ''}>Todos los clientes</option>
+      <option value="debe" ${STATE.clientFilter === 'debe' ? 'selected' : ''}>Con deuda pendiente</option>
+      <option value="finalizado" ${STATE.clientFilter === 'finalizado' ? 'selected' : ''}>Cuentas finalizadas (ya pagaron todo)</option>
+    </select>`;
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Clientes</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Cuenta corriente y estado de cada cliente</p></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        ${filterSelect}
+        <button class="btn btn-danger btn-sm" onclick="deleteAllClients()"><i class="fa-solid fa-trash"></i>Borrar todos los clientes</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table>
+        <thead><tr><th>Cliente</th><th>Teléfono</th><th>Estado</th><th style="text-align:right;">Saldo total</th><th></th></tr></thead>
+        <tbody>
+          ${list.length === 0 ? `<tr><td colspan="5" class="empty-row">No se encontraron clientes con ese filtro.</td></tr>` : list.map(c => {
+            let estadoPill;
+            if(c.moroso) estadoPill = `<span class="pill" style="background:#FDEDEC;color:#A32D2D;border-color:#F7C1C1;">Moroso</span>`;
+            else if(c.tieneOperaciones && c.saldo <= 0.01) estadoPill = `<span class="pill" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">Finalizado</span>`;
+            else estadoPill = `<span class="pill">Al día</span>`;
+            return `
+            <tr class="clickable" onclick="openClient('${c.id}')">
+              <td style="font-weight:600;">${esc(c.name)}</td>
+              <td style="color:var(--paper-dim);">${esc(c.phone) || '-'}</td>
+              <td>${estadoPill}</td>
+              <td style="text-align:right;font-weight:600;">${formatMoney(c.saldo)}</td>
+              <td style="text-align:right;"><button class="btn btn-ghost" style="color:#E2726B;" onclick="event.stopPropagation();deleteClient('${c.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+function renderClienteDetail(){
+  const c = getFilteredClients().find(x => x.id === STATE.selectedClientId) ||
+    STATE.clients.filter(x => x.id === STATE.selectedClientId).map(x => {
+      const cLoans = STATE.loans.filter(l => l.clientId === x.id);
+      const cSales = STATE.sales.filter(s => s.clientId === x.id);
+      const saldo = cLoans.reduce((a, l) => a + itemSaldoPendiente(l), 0) + cSales.reduce((a, s) => a + itemSaldoPendiente(s), 0);
+      return { ...x, cLoans, cSales, saldo };
+    })[0];
+  if(!c) return `<div class="card empty-row">Cliente no encontrado.</div>`;
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+      <button class="btn btn-ghost" onclick="STATE.selectedClientId=null;render();"><i class="fa-solid fa-arrow-left"></i>Volver</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.id}')"><i class="fa-solid fa-trash"></i>Borrar cliente</button>
+    </div>
+    <div class="card" style="margin-bottom:20px;">
+      <div style="font-family:var(--font-display);font-size:20px;font-weight:700;">${esc(c.name)}</div>
+      ${c.phone ? `<div style="font-size:13px;color:var(--paper-dim);margin-top:4px;"><i class="fa-solid fa-phone" style="font-size:11px;margin-right:6px;"></i>${esc(c.phone)}</div>` : ''}
+      ${c.dni ? `<div style="font-size:13px;color:var(--paper-dim);margin-top:4px;"><i class="fa-solid fa-id-card" style="font-size:11px;margin-right:6px;"></i>DNI ${esc(c.dni)}</div>` : ''}
+      ${c.address ? `<div style="font-size:13px;color:var(--paper-dim);margin-top:4px;"><i class="fa-solid fa-location-dot" style="font-size:11px;margin-right:6px;"></i>${esc(c.address)}</div>` : ''}
+      <div style="font-size:14px;margin-top:8px;">Saldo adeudado total: <b>${formatMoney(c.saldo)}</b></div>
+    </div>
+    ${c.cLoans.length > 0 ? `<div class="eyebrow" style="margin-bottom:8px;">Préstamos</div>${c.cLoans.map(l => renderItemCard(l, 'loan')).join('')}` : ''}
+    ${c.cSales.length > 0 ? `<div class="eyebrow" style="margin:16px 0 8px;">Ventas</div>${c.cSales.map(s => renderItemCard(s, 'sale')).join('')}` : ''}
+    ${c.cLoans.length === 0 && c.cSales.length === 0 ? `<div class="card empty-row">Este cliente todavía no tiene préstamos ni ventas.</div>` : ''}
+  `;
+}
+
+/* ================= RENDER PRINCIPAL ================= */
+function render(skipSearchSync){
+  if(STATE.loading){
+    document.getElementById('content').innerHTML = `<div style="padding:60px 0;text-align:center;color:var(--paper-dim);font-size:13px;">Cargando libro de cuentas…</div>`;
+    document.getElementById('sidebar').innerHTML = '';
+    return;
+  }
+  renderSidebar();
+  let html = '';
+  if(STATE.tab === 'dashboard') html = renderDashboard();
+  else if(STATE.tab === 'notificaciones') html = renderNotificaciones();
+  else if(STATE.tab === 'prestamos') html = renderPrestamos();
+  else if(STATE.tab === 'ventas') html = renderVentas();
+  else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
+  else if(STATE.tab === 'evolucion') html = renderEvolucion();
+  document.getElementById('content').innerHTML = html;
+  if(STATE.tab === 'evolucion') initEvolucionChart();
+  if(!skipSearchSync){
+    const input = document.getElementById('search-input');
+    if(input.value !== STATE.search) input.value = STATE.search;
+  }
+}
+
+/* ================= MODALES ================= */
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+/* ================= INFO DE KPIs ================= */
+const KPI_INFO = {
+  enCalle: { title: 'En la calle', desc: 'Suma de todo lo que falta cobrar en préstamos: el saldo de cada cuota sin pagar, más el recargo por mora si esa cuota ya venció. No incluye artículos vendidos financiados, solo préstamos en efectivo.' },
+  interesProyectado: { title: 'Interés proyectado', desc: 'La ganancia que vas a obtener por interés en los préstamos que diste: la diferencia entre lo que prestaste y lo que el cliente tiene que devolver en total (monto × % de interés). Es la ganancia planeada, pague el cliente en fecha o no.' },
+  moraPrestamos: { title: 'Recargos por mora (préstamos)', desc: 'El recargo extra que se acumuló solo en las cuotas de préstamos que ya vencieron y no se pagaron, calculado con el % de mora que cargaste en cada préstamo. Si es $0, es porque no hay cuotas de préstamos vencidas, o ninguna tiene % de mora configurado.' },
+  vencidasPrestamos: { title: 'Cuotas vencidas (préstamos)', desc: 'Cantidad de cuotas de préstamos que ya pasaron su fecha límite y todavía no se pagaron (total o parcialmente).' },
+  financiadoArticulos: { title: 'Financiado (total)', desc: 'La suma histórica de todo lo que financiaste en ventas de artículos: precio del artículo menos el anticipo que pagó el cliente en el momento, sumado en todas las ventas cargadas (pagadas o no).' },
+  porCobrarArticulos: { title: 'Por cobrar (artículos)', desc: 'Lo que falta cobrar hoy de las ventas financiadas: el saldo de cada cuota sin pagar, más el recargo por mora si esa cuota ya venció.' },
+  moraArticulos: { title: 'Recargos por mora (artículos)', desc: 'El recargo extra acumulado en cuotas de ventas de artículos que ya vencieron y no se pagaron, según el % de mora que cargaste en esa venta.' },
+  vencidasArticulos: { title: 'Cuotas vencidas (artículos)', desc: 'Cantidad de cuotas de ventas financiadas que ya pasaron su fecha límite y todavía no se pagaron (total o parcialmente).' },
+  evoPrestado: { title: 'Prestado', desc: 'Suma del monto de cada préstamo que diste, agrupado por el mes en que lo cargaste (según la fecha del préstamo). No incluye ventas de artículos.' },
+  evoCobrado: { title: 'Cobrado', desc: 'Suma de todos los pagos que registraste (de préstamos y de artículos), agrupados por el mes en que se hizo cada pago. Es el efectivo real que entró.' },
+  evoMora: { title: 'Mora acumulada', desc: 'El recargo por mora que hoy tienen las cuotas vencidas, agrupado según el mes en que esa cuota debía pagarse. Como se calcula con la fecha de hoy, meses pasados pueden cambiar si esas cuotas se terminan pagando o si pasa más tiempo.' }
+};
+function showKpiInfo(key){
+  const info = KPI_INFO[key];
+  if(!info) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box" style="max-width:380px;">
+        <div class="modal-head"><h3>${esc(info.title)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13.5px;line-height:1.6;color:var(--paper-dim);">${esc(info.desc)}</div>
+      </div>
+    </div>`;
+}
+
+function openLoanModal(){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Nuevo préstamo</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <form onsubmit="submitLoanForm(event)">
+          <div class="field"><label>Cliente</label><input list="clients-list" name="clientName" placeholder="Nombre del cliente" required></div>
+          <datalist id="clients-list">${STATE.clients.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>
+          <div class="field"><label>Teléfono (opcional)</label><input name="phone" placeholder="Ej: 381 555 1234"></div>
+          <div class="row-2">
+            <div class="field"><label>DNI (opcional)</label><input name="dni" placeholder="Ej: 30123456"></div>
+            <div class="field"><label>Dirección (opcional)</label><input name="address" placeholder="Ej: San Martín 450"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Monto solicitado</label><input name="amount" type="number" min="0" step="0.01" required oninput="updateLoanPreview()"></div>
+            <div class="field"><label>Fecha del préstamo</label><input name="date" type="date" value="${todayStr()}" required oninput="updateLoanPreview()"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" required oninput="updateLoanPreview()"></div>
+            <div class="field"><label>Cantidad de cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()"></div>
+          </div>
+          <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
+          <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" placeholder="Ej: Moto Honda Wave 110, patente ABC123"></div>
+          <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Monto a devolver:</span><span id="loan-total" style="font-weight:700;">${formatMoney(0)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Valor de cada cuota:</span><span id="loan-cuota">${formatMoney(0)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Fecha última cuota:</span><span id="loan-lastdate">-</span></div>
+          </div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Guardar préstamo</button>
+        </form>
+      </div>
+    </div>`;
+}
+function updateLoanPreview(){
+  const f = document.querySelector('#modal-root form');
+  const amount = Number(f.amount.value) || 0;
+  const percent = Number(f.percent.value) || 0;
+  const numCuotas = Number(f.numCuotas.value) || 1;
+  const date = f.date.value || todayStr();
+  const total = amount * (1 + percent / 100);
+  document.getElementById('loan-total').textContent = formatMoney(total);
+  document.getElementById('loan-cuota').textContent = formatMoney(total / numCuotas);
+  document.getElementById('loan-lastdate').textContent = formatDate(addMonths(date, numCuotas));
+}
+function submitLoanForm(e){
+  e.preventDefault();
+  const f = e.target;
+  saveLoan({
+    clientName: f.clientName.value.trim(), phone: f.phone.value.trim(),
+    dni: f.dni.value.trim(), address: f.address.value.trim(),
+    amount: Number(f.amount.value), date: f.date.value,
+    percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
+    moraPercent: Number(f.moraPercent.value) || 0,
+    garantia: f.garantia.value.trim()
+  });
+}
+
+function openSaleModal(){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Nueva venta financiada</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <form onsubmit="submitSaleForm(event)">
+          <div class="field"><label>Cliente</label><input list="clients-list2" name="clientName" placeholder="Nombre del cliente" required></div>
+          <datalist id="clients-list2">${STATE.clients.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>
+          <div class="field"><label>Teléfono (opcional)</label><input name="phone" placeholder="Ej: 381 555 1234"></div>
+          <div class="row-2">
+            <div class="field"><label>DNI (opcional)</label><input name="dni" placeholder="Ej: 30123456"></div>
+            <div class="field"><label>Dirección (opcional)</label><input name="address" placeholder="Ej: San Martín 450"></div>
+          </div>
+          <div class="field"><label>Artículo</label><input name="article" placeholder="Ej: Celular Samsung A15" required></div>
+          <div class="row-2">
+            <div class="field"><label>Fecha de venta</label><input name="date" type="date" value="${todayStr()}" required></div>
+            <div class="field"><label>Forma de pago</label>
+              <select name="paymentMethod"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mixto</option></select>
+            </div>
+          </div>
+          <div class="row-3">
+            <div class="field"><label>Precio total</label><input name="price" type="number" min="0" step="0.01" required oninput="updateSalePreview()"></div>
+            <div class="field"><label>Anticipo</label><input name="anticipo" type="number" min="0" step="0.01" value="0" oninput="updateSalePreview()"></div>
+            <div class="field"><label>Cant. cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateSalePreview()"></div>
+          </div>
+          <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
+          <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Saldo a financiar:</span><span id="sale-financed" style="font-weight:700;">${formatMoney(0)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Valor de cada cuota:</span><span id="sale-cuota">${formatMoney(0)}</span></div>
+          </div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Guardar venta</button>
+        </form>
+      </div>
+    </div>`;
+}
+function updateSalePreview(){
+  const f = document.querySelector('#modal-root form');
+  const price = Number(f.price.value) || 0;
+  const anticipo = Number(f.anticipo.value) || 0;
+  const numCuotas = Number(f.numCuotas.value) || 1;
+  const financed = Math.max(price - anticipo, 0);
+  document.getElementById('sale-financed').textContent = formatMoney(financed);
+  document.getElementById('sale-cuota').textContent = formatMoney(financed / numCuotas);
+}
+function submitSaleForm(e){
+  e.preventDefault();
+  const f = e.target;
+  saveSale({
+    clientName: f.clientName.value.trim(), phone: f.phone.value.trim(),
+    dni: f.dni.value.trim(), address: f.address.value.trim(),
+    article: f.article.value.trim(), price: Number(f.price.value),
+    anticipo: Number(f.anticipo.value) || 0, date: f.date.value,
+    paymentMethod: f.paymentMethod.value, numCuotas: Number(f.numCuotas.value),
+    moraPercent: Number(f.moraPercent.value) || 0
+  });
+}
+
+function openRefinanceModal(type, id){
+  const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
+  const saldo = Math.round(itemSaldoPendiente(item) * 100) / 100;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Refinanciar a ${esc(item.clientName)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13px;color:var(--paper-dim);margin-bottom:14px;">
+          Esto cierra el ${type === 'loan' ? 'préstamo' : 'venta'} actual (queda marcado como "Refinanciado", sin borrar su historial) y crea un préstamo nuevo por el saldo que elijas, con sus propias cuotas.
+        </div>
+        <form onsubmit="submitRefinanceForm(event,'${type}','${id}')">
+          <div class="field"><label>Monto a refinanciar</label><input name="amount" type="number" min="0" step="0.01" value="${saldo}" required oninput="updateRefinancePreview()"></div>
+          <div class="row-2">
+            <div class="field"><label>Fecha del nuevo préstamo</label><input name="date" type="date" value="${todayStr()}" required oninput="updateRefinancePreview()"></div>
+            <div class="field"><label>Cantidad de cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateRefinancePreview()"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" value="0" required oninput="updateRefinancePreview()"></div>
+            <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
+          </div>
+          <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" value="${esc(item.garantia || '')}" placeholder="Ej: Moto Honda Wave 110"></div>
+          <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Nuevo monto a devolver:</span><span id="refi-total" style="font-weight:700;">${formatMoney(saldo)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Valor de cada cuota:</span><span id="refi-cuota">${formatMoney(saldo)}</span></div>
+          </div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Confirmar refinanciación</button>
+        </form>
+      </div>
+    </div>`;
+}
+function updateRefinancePreview(){
+  const f = document.querySelector('#modal-root form');
+  const amount = Number(f.amount.value) || 0;
+  const percent = Number(f.percent.value) || 0;
+  const numCuotas = Number(f.numCuotas.value) || 1;
+  const total = amount * (1 + percent / 100);
+  document.getElementById('refi-total').textContent = formatMoney(total);
+  document.getElementById('refi-cuota').textContent = formatMoney(total / numCuotas);
+}
+function submitRefinanceForm(e, type, id){
+  e.preventDefault();
+  const f = e.target;
+  refinanceItem(type, id, {
+    amount: Number(f.amount.value), date: f.date.value,
+    percent: Number(f.percent.value) || 0, numCuotas: Number(f.numCuotas.value),
+    moraPercent: Number(f.moraPercent.value) || 0, garantia: f.garantia.value.trim()
+  });
+}
+
+function openPayModal(type, id, cuotaIndex){
+  const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
+  const cuota = item.cuotas[cuotaIndex];
+  const remaining = Math.round((cuota.amount - cuota.paidAmount) * 100) / 100;
+  const recargo = calcRecargoMora(cuota, item);
+  const totalHoy = Math.round((remaining + recargo) * 100) / 100;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Cuota ${cuota.n}/${item.cuotas.length}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13px;color:var(--paper-dim);margin-bottom:14px;">Vence el ${formatDate(cuota.dueDate)}</div>
+        ${recargo > 0 ? `
+        <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;"><span>Cuota pendiente:</span><span>${formatMoney(remaining)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#A32D2D;"><span>Recargo por mora:</span><span>${formatMoney(recargo)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:4px;border-top:1px solid var(--line);padding-top:6px;"><span>Total a cobrar hoy:</span><span style="font-weight:700;">${formatMoney(totalHoy)}</span></div>
+        </div>` : `<div style="font-size:13px;color:var(--paper-dim);margin-bottom:14px;">Saldo pendiente ${formatMoney(remaining)}</div>`}
+        <form onsubmit="submitPayForm(event,'${type}','${id}',${cuotaIndex})">
+          <div class="field"><label>Monto que abona</label><input name="amount" type="number" min="0" step="0.01" value="${totalHoy}" required></div>
+          <div class="field"><label>Fecha de pago</label><input name="date" type="date" value="${todayStr()}" required></div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Registrar pago</button>
+        </form>
+      </div>
+    </div>`;
+}
+function submitPayForm(e, type, id, cuotaIndex){
+  e.preventDefault();
+  const f = e.target;
+  registerPayment(type, id, cuotaIndex, Number(f.amount.value), f.date.value);
+}
+
+/* ================= RECIBO DE PAGO ================= */
+let LAST_RECEIPT_TEXT = '';
+let LAST_RECEIPT_CLIENT = '';
+
+function buildReceiptText(type, item, cuota, amountPaid, date, recargoIncluido){
+  const cuotaRemaining = Math.round((cuota.amount - cuota.paidAmount) * 100) / 100;
+  const saldoTotal = itemSaldoPendiente(item);
+  const concepto = type === 'loan' ? 'Préstamo' : `Venta - ${item.article}`;
+  const lines = [
+    'RECIBO DE PAGO',
+    '— Libro de Cuentas —',
+    '',
+    `Cliente: ${item.clientName}`,
+    `Concepto: ${concepto}`,
+    `Cuota: ${cuota.n}/${item.cuotas.length}`,
+    `Fecha de pago: ${formatDate(date)}`,
+    `Monto abonado: ${formatMoney(amountPaid)}`,
+    recargoIncluido > 0 ? `(incluye recargo por mora: ${formatMoney(recargoIncluido)})` : null,
+    cuotaRemaining > 0 ? `Saldo de esta cuota: ${formatMoney(cuotaRemaining)}` : 'Cuota saldada.',
+    `Saldo total pendiente: ${formatMoney(saldoTotal)}`
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+function openReceiptModal(type, item, cuota, amountPaid, date, recargoIncluido){
+  LAST_RECEIPT_TEXT = buildReceiptText(type, item, cuota, amountPaid, date, recargoIncluido || 0);
+  LAST_RECEIPT_CLIENT = item.clientName;
+  const client = STATE.clients.find(c => c.id === item.clientId);
+  const phoneDigits = client && client.phone ? client.phone.replace(/[^0-9]/g, '') : '';
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3><i class="fa-solid fa-receipt" style="color:var(--brass);margin-right:8px;"></i>Pago registrado</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <pre id="receipt-text" style="white-space:pre-wrap;font-family:var(--font-mono);font-size:13px;background:var(--ink-3);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:0 0 16px;line-height:1.6;">${esc(LAST_RECEIPT_TEXT)}</pre>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn" style="flex:1;" onclick="copyReceiptText()"><i class="fa-solid fa-copy"></i>Copiar</button>
+          <button class="btn" style="flex:1;" onclick="downloadReceiptPDF()"><i class="fa-solid fa-file-pdf"></i>Descargar PDF</button>
+          <button class="btn btn-solid" style="flex:1;background:#25D366;border-color:#25D366;" onclick="sendReceiptWhatsapp('${phoneDigits}')"><i class="fa-brands fa-whatsapp"></i>Enviar por WhatsApp</button>
+        </div>
+        ${!phoneDigits ? `<div style="font-size:12px;color:var(--paper-dim);margin-top:10px;">Este cliente no tiene teléfono cargado: al enviar vas a poder elegir el contacto manualmente en WhatsApp.</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function copyReceiptText(){
+  navigator.clipboard.writeText(LAST_RECEIPT_TEXT).then(() => showToast('Recibo copiado al portapapeles'))
+    .catch(() => showToast('No se pudo copiar. Seleccioná el texto manualmente.'));
+}
+
+function downloadReceiptPDF(){
+  if(typeof window.jspdf === 'undefined'){ showToast('No se pudo generar el PDF. Revisá tu conexión.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a5' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 16;
+  let y = 22;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(28, 43, 54);
+  doc.text('RECIBO DE PAGO', marginX, y);
+  y += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(105, 116, 124);
+  doc.text('Libro de Cuentas', marginX, y);
+  y += 8;
+  doc.setDrawColor(228, 225, 216);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 10;
+
+  const bodyLines = LAST_RECEIPT_TEXT.split('\n').filter(l => l && l !== 'RECIBO DE PAGO' && l !== '— Libro de Cuentas —');
+  doc.setFontSize(11.5);
+  bodyLines.forEach(line => {
+    const isTotal = line.startsWith('Saldo total pendiente');
+    doc.setFont('helvetica', isTotal ? 'bold' : 'normal');
+    doc.setTextColor(28, 43, 54);
+    const wrapped = doc.splitTextToSize(line, pageWidth - marginX * 2);
+    doc.text(wrapped, marginX, y);
+    y += 7 * wrapped.length;
+  });
+
+  y += 8;
+  doc.setDrawColor(228, 225, 216);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Comprobante generado el ${formatDate(todayStr())}`, marginX, y);
+
+  const safeName = (LAST_RECEIPT_CLIENT || 'cliente').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  doc.save(`recibo-${safeName}-${todayStr()}.pdf`);
+}
+
+function sendReceiptWhatsapp(phoneDigits){
+  const text = encodeURIComponent(LAST_RECEIPT_TEXT);
+  const url = phoneDigits ? `https://wa.me/${phoneDigits}?text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
+  window.open(url, '_blank');
+}
+
+/* ================= RECORDATORIO DE PAGO ================= */
+let LAST_REMINDER_TEXT = '';
+
+function buildReminderText(item, cuota){
+  const est = cuotaEstado(cuota);
+  const recargo = calcRecargoMora(cuota, item);
+  const monto = formatMoney(cuota.amount - cuota.paidAmount + recargo);
+  let situacion;
+  if(est === 'vencida'){
+    const dias = daysBetween(todayStr(), cuota.dueDate);
+    situacion = `tu cuota ${cuota.n}/${item.cuotas.length} venció hace ${dias} día${dias === 1 ? '' : 's'}`;
+  } else {
+    const dias = daysBetween(cuota.dueDate, todayStr());
+    situacion = dias <= 0
+      ? `tu cuota ${cuota.n}/${item.cuotas.length} vence hoy`
+      : `tu cuota ${cuota.n}/${item.cuotas.length} vence en ${dias} día${dias === 1 ? '' : 's'} (${formatDate(cuota.dueDate)})`;
+  }
+  return `Hola ${item.clientName}! Te escribo para recordarte que ${situacion}, por un monto de ${monto}. Cualquier consulta, avisame. ¡Gracias!`;
+}
+
+function openReminderModal(type, id, cuotaIndex){
+  const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
+  const cuota = item.cuotas[cuotaIndex];
+  LAST_REMINDER_TEXT = buildReminderText(item, cuota);
+  const client = STATE.clients.find(c => c.id === item.clientId);
+  const phoneDigits = client && client.phone ? client.phone.replace(/[^0-9]/g, '') : '';
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3><i class="fa-solid fa-bell" style="color:var(--brass);margin-right:8px;"></i>Recordatorio de pago</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div class="field"><label>Mensaje (podés editarlo antes de enviarlo)</label><textarea id="reminder-textarea" rows="5" oninput="LAST_REMINDER_TEXT=this.value">${esc(LAST_REMINDER_TEXT)}</textarea></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn" style="flex:1;" onclick="copyReminderText()"><i class="fa-solid fa-copy"></i>Copiar</button>
+          <button class="btn btn-solid" style="flex:1;background:#25D366;border-color:#25D366;" onclick="sendReminderWhatsapp('${phoneDigits}')"><i class="fa-brands fa-whatsapp"></i>Enviar por WhatsApp</button>
+        </div>
+        ${!phoneDigits ? `<div style="font-size:12px;color:var(--paper-dim);margin-top:10px;">Este cliente no tiene teléfono cargado: al enviar vas a poder elegir el contacto manualmente en WhatsApp.</div>` : ''}
+      </div>
+    </div>`;
+}
+function copyReminderText(){
+  navigator.clipboard.writeText(LAST_REMINDER_TEXT).then(() => showToast('Mensaje copiado al portapapeles'))
+    .catch(() => showToast('No se pudo copiar. Seleccioná el texto manualmente.'));
+}
+function sendReminderWhatsapp(phoneDigits){
+  const text = encodeURIComponent(LAST_REMINDER_TEXT);
+  const url = phoneDigits ? `https://wa.me/${phoneDigits}?text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
+  window.open(url, '_blank');
+}
+
+/* ================= INIT ================= */
+// La carga de datos ahora se dispara desde auth.onAuthStateChanged una vez que hay sesión iniciada.
+</script>
+</body>
+</html>
