@@ -240,6 +240,21 @@ function addMonths(dateStr, n){
   d.setMonth(d.getMonth() + n);
   return d.toISOString().slice(0, 10);
 }
+function addDays(dateStr, n){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function addPeriod(dateStr, n, periodicidad){
+  if(periodicidad === 'diario') return addDays(dateStr, n);
+  if(periodicidad === 'semanal') return addDays(dateStr, n * 7);
+  return addMonths(dateStr, n);
+}
+function periodLabel(periodicidad, plural){
+  if(periodicidad === 'diario') return plural ? 'días' : 'día';
+  if(periodicidad === 'semanal') return plural ? 'semanas' : 'semana';
+  return plural ? 'meses' : 'mes';
+}
 function formatDate(dateStr){
   if(!dateStr) return '-';
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
@@ -251,7 +266,8 @@ function formatMoney(n){
 function daysBetween(a, b){
   return Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
 }
-function genCuotas(startDate, numCuotas, totalAmount){
+function genCuotas(startDate, numCuotas, totalAmount, periodicidad){
+  periodicidad = periodicidad || 'mensual';
   const base = Math.floor((totalAmount / numCuotas) * 100) / 100;
   const cuotas = [];
   let acumulado = 0;
@@ -259,9 +275,14 @@ function genCuotas(startDate, numCuotas, totalAmount){
     let amount = base;
     if(i === numCuotas) amount = Math.round((totalAmount - acumulado) * 100) / 100;
     acumulado += amount;
-    cuotas.push({ n:i, dueDate: addMonths(startDate, i), amount, paidAmount:0, paid:false, paidDate:null });
+    cuotas.push({ n:i, dueDate: addPeriod(startDate, i, periodicidad), amount, paidAmount:0, paid:false, paidDate:null });
   }
   return cuotas;
+}
+function periodosDeAtraso(dias, periodicidad){
+  if(periodicidad === 'diario') return Math.max(1, dias);
+  if(periodicidad === 'semanal') return Math.max(1, Math.ceil(dias / 7));
+  return Math.max(1, Math.ceil(dias / 30));
 }
 function cuotaEstado(cuota){
   if(cuota.paid) return 'pagada';
@@ -287,21 +308,22 @@ function calcRecargoMora(cuota, item){
   if(cuotaEstado(cuota) !== 'vencida') return 0;
   const pendiente = cuota.amount - cuota.paidAmount;
   const percent = Number(item.moraPercent) || 0;
+  const periodicidad = item.periodicidad || 'mensual';
 
   if(cuota.moraOverride){
     const diasDesdeAjuste = daysBetween(todayStr(), cuota.moraOverride.date);
     let extra = 0;
     if(diasDesdeAjuste > 0 && percent > 0){
-      const mesesAdicionales = Math.ceil(diasDesdeAjuste / 30);
-      extra = Math.round(pendiente * (percent / 100) * mesesAdicionales * 100) / 100;
+      const periodosAdicionales = periodosDeAtraso(diasDesdeAjuste, periodicidad);
+      extra = Math.round(pendiente * (percent / 100) * periodosAdicionales * 100) / 100;
     }
     return Math.round((cuota.moraOverride.amount + extra) * 100) / 100;
   }
 
   if(percent <= 0) return 0;
   const diasAtraso = daysBetween(todayStr(), cuota.dueDate);
-  const mesesAtraso = Math.max(1, Math.ceil(diasAtraso / 30));
-  return Math.round(pendiente * (percent / 100) * mesesAtraso * 100) / 100;
+  const periodosAtraso = periodosDeAtraso(diasAtraso, periodicidad);
+  return Math.round(pendiente * (percent / 100) * periodosAtraso * 100) / 100;
 }
 function cuotaActualLabel(item){
   if(item.cuotas.length === 0) return '-';
@@ -359,13 +381,14 @@ function exportClientsCSV(){
   downloadCSV(`clientes-${todayStr()}.csv`, rows);
 }
 function exportLoansCSV(){
-  const rows = [['Cliente', 'Teléfono', 'DNI', 'Monto', 'Fecha préstamo', 'Interés %', 'Mora %', 'Garantía', 'Estado préstamo', 'Cuota N', 'Vence', 'Monto cuota', 'Pagado', 'Fecha de pago', 'Estado cuota']];
+  const rows = [['Cliente', 'Teléfono', 'DNI', 'Monto', 'Fecha préstamo', 'Periodicidad', 'Interés %', 'Mora %', 'Garantía', 'Estado préstamo', 'Cuota N', 'Vence', 'Monto cuota', 'Pagado', 'Fecha de pago', 'Estado cuota']];
   STATE.loans.forEach(l => {
     const client = STATE.clients.find(c => c.id === l.clientId) || {};
     const estadoItem = STATUS_STYLE[itemEstado(l)]?.label || '';
+    const periodicidadLabel = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[l.periodicidad || 'mensual'];
     l.cuotas.forEach(c => {
       rows.push([
-        l.clientName, client.phone || '', client.dni || '', csvNum(l.amount), formatDate(l.date),
+        l.clientName, client.phone || '', client.dni || '', csvNum(l.amount), formatDate(l.date), periodicidadLabel,
         l.percent, l.moraPercent || 0, l.garantia || '', estadoItem,
         c.n, formatDate(c.dueDate), csvNum(c.amount), csvNum(c.paidAmount), c.paidDate ? formatDate(c.paidDate) : '',
         STATUS_STYLE[cuotaEstado(c) === 'vencida' ? 'vencido' : cuotaEstado(c) === 'proxima' ? 'proximo' : cuotaEstado(c) === 'pagada' ? 'finalizado' : 'aldia'].label
@@ -527,7 +550,8 @@ function findOrCreateClient(name, phone, dni, address){
 async function saveLoan(data){
   const client = findOrCreateClient(data.clientName, data.phone, data.dni, data.address);
   const total = Math.round(data.amount * (1 + data.percent / 100) * 100) / 100;
-  const loan = { id: genId(), clientId: client.id, clientName: client.name, amount: data.amount, date: data.date, percent: data.percent, moraPercent: data.moraPercent || 0, garantia: data.garantia || '', totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total) };
+  const periodicidad = data.periodicidad || 'mensual';
+  const loan = { id: genId(), clientId: client.id, clientName: client.name, amount: data.amount, date: data.date, percent: data.percent, moraPercent: data.moraPercent || 0, garantia: data.garantia || '', periodicidad, totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total, periodicidad) };
   STATE.loans = [loan, ...STATE.loans];
   await persist('clients', STATE.clients); await persist('loans', STATE.loans);
   closeModal(); render();
@@ -730,6 +754,7 @@ function renderSidebar(){
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
       ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
       ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
+      ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
       ${item('ventas', 'fa-cart-shopping', 'Artículos')}
       ${item('clientes', 'fa-users', 'Clientes')}
       ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
@@ -779,8 +804,9 @@ function renderItemCard(item, type){
   const estado = itemEstado(item);
   const saldo = itemSaldoPendiente(item);
   const expanded = STATE.expanded === item.id;
+  const periodicidadLabel = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[item.periodicidad || 'mensual'];
   const metaLine = type === 'loan'
-    ? `Préstamo ${formatMoney(item.amount)} · ${item.percent}% · desde ${formatDate(item.date)}`
+    ? `Préstamo ${formatMoney(item.amount)} · ${item.percent}% · ${periodicidadLabel} · desde ${formatDate(item.date)}`
     : `${esc(item.article)} · anticipo ${formatMoney(item.anticipo)} · ${esc(item.paymentMethod)}`;
   const delFn = type === 'loan' ? 'deleteLoan' : 'deleteSale';
   const puedeRefinanciar = !item.refinanciadoEnId && saldo > 0.01;
@@ -1072,17 +1098,83 @@ function renderNotifCard(d){
 }
 
 function renderPrestamos(){
+  const activos = STATE.loans.filter(l => ['aldia', 'proximo', 'vencido'].includes(itemEstado(l)));
   return `
     <div class="toolbar">
-      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Préstamos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.loans.length} préstamos cargados</p></div>
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Préstamos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${activos.length} préstamos activos</p></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-sm" onclick="exportLoansCSV()"><i class="fa-solid fa-file-csv"></i>Exportar CSV</button>
         <button class="btn btn-solid" onclick="openLoanModal()"><i class="fa-solid fa-plus"></i>Nuevo préstamo</button>
       </div>
     </div>
-    ${STATE.loans.length === 0 ? `<div class="card empty-row">Todavía no cargaste préstamos.</div>` : STATE.loans.map(l => renderItemCard(l, 'loan')).join('')}
+    ${activos.length === 0 ? `<div class="card empty-row">No hay préstamos activos en este momento.</div>` : activos.map(l => renderItemCard(l, 'loan')).join('')}
+    <div style="text-align:center;margin-top:16px;">
+      <span style="font-size:12.5px;color:var(--paper-dim);cursor:pointer;" onclick="goTab('historial')"><i class="fa-solid fa-clock-rotate-left" style="margin-right:5px;"></i>Ver préstamos finalizados y refinanciados en el Historial</span>
+    </div>
   `;
 }
+/* ================= CALIFICACIÓN DEL CLIENTE ================= */
+function calcClientRating(clientId){
+  const items = [...STATE.loans, ...STATE.sales].filter(it => it.clientId === clientId);
+  let onTime = 0, late = 0;
+  items.forEach(it => it.cuotas.forEach(c => {
+    if(c.paid && c.paidDate){
+      if(c.paidDate <= c.dueDate) onTime++; else late++;
+    }
+  }));
+  const total = onTime + late;
+  if(total === 0) return { stars: null, pct: null, total: 0 };
+  const pct = Math.round((onTime / total) * 100);
+  let stars;
+  if(pct >= 90) stars = 5;
+  else if(pct >= 75) stars = 4;
+  else if(pct >= 50) stars = 3;
+  else if(pct >= 25) stars = 2;
+  else stars = 1;
+  return { stars, pct, total };
+}
+function renderStars(rating){
+  if(rating.stars === null){
+    return `<span style="font-size:12px;color:var(--paper-dim);">Sin historial de pagos todavía</span>`;
+  }
+  let starsHtml = '';
+  for(let i = 1; i <= 5; i++){
+    starsHtml += `<i class="fa-${i <= rating.stars ? 'solid' : 'regular'} fa-star" style="color:${i <= rating.stars ? '#F5A623' : '#D2CDBF'};font-size:13px;"></i>`;
+  }
+  return `${starsHtml} <span style="font-size:12px;color:var(--paper-dim);margin-left:4px;">${rating.pct}% de ${rating.total} cuota${rating.total === 1 ? '' : 's'} pagadas en fecha</span>`;
+}
+
+/* ================= HISTORIAL DE PRÉSTAMOS ================= */
+function renderHistorialPrestamos(){
+  const historicos = STATE.loans.filter(l => ['finalizado', 'refinanciado'].includes(itemEstado(l)));
+  const porCliente = {};
+  historicos.forEach(l => { (porCliente[l.clientId] = porCliente[l.clientId] || []).push(l); });
+
+  const grupos = Object.keys(porCliente).map(clientId => {
+    const client = STATE.clients.find(c => c.id === clientId) || { name: porCliente[clientId][0].clientName };
+    const rating = calcClientRating(clientId);
+    return { clientId, client, loans: porCliente[clientId], rating };
+  }).sort((a, b) => (a.rating.stars ?? 99) - (b.rating.stars ?? 99));
+
+  return `
+    <div class="main-head"><div><h1>Historial de préstamos</h1><p class="sub">Préstamos finalizados y refinanciados de cada cliente, con su calificación de cumplimiento</p></div></div>
+    ${grupos.length === 0 ? `<div class="card empty-row">Todavía no hay préstamos finalizados ni refinanciados. Van a aparecer acá cuando un cliente termine de pagar uno, o cuando refinancies un préstamo.</div>` : grupos.map(g => `
+      <div class="card" style="margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;" onclick="STATE.tab='clientes';openClient('${g.clientId}')">
+          <div>
+            <div style="font-family:var(--font-display);font-size:16px;font-weight:700;">${esc(g.client.name)}</div>
+            <div style="margin-top:4px;">${renderStars(g.rating)}</div>
+          </div>
+          <span style="font-size:12px;color:var(--paper-dim);">${g.loans.length} préstamo${g.loans.length === 1 ? '' : 's'} en el historial</span>
+        </div>
+        <div style="margin-top:12px;">
+          ${g.loans.map(l => renderItemCard(l, 'loan')).join('')}
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
 function renderVentas(){
   return `
     <div class="toolbar">
@@ -1180,6 +1272,7 @@ function render(skipSearchSync){
   if(STATE.tab === 'dashboard') html = renderDashboard();
   else if(STATE.tab === 'notificaciones') html = renderNotificaciones();
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
+  else if(STATE.tab === 'historial') html = renderHistorialPrestamos();
   else if(STATE.tab === 'ventas') html = renderVentas();
   else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
   else if(STATE.tab === 'calendario') html = renderCalendario();
@@ -1224,9 +1317,35 @@ function showKpiInfo(key){
 function openLoanModal(){
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
-      <div class="modal-box">
+      <div class="modal-box" style="max-width:380px;">
         <div class="modal-head"><h3>Nuevo préstamo</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
-        <form onsubmit="submitLoanForm(event)">
+        <div style="font-size:13.5px;color:var(--paper-dim);margin-bottom:16px;">¿Cómo se van a cobrar las cuotas de este préstamo?</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn" style="width:100%;justify-content:flex-start;text-align:left;padding:14px;" onclick="openLoanFormModal('diario')">
+            <i class="fa-solid fa-sun" style="margin-right:10px;color:var(--brass-bright);"></i><b>Diario</b> — una cuota por día
+          </button>
+          <button class="btn" style="width:100%;justify-content:flex-start;text-align:left;padding:14px;" onclick="openLoanFormModal('semanal')">
+            <i class="fa-solid fa-calendar-week" style="margin-right:10px;color:var(--brass-bright);"></i><b>Semanal</b> — una cuota por semana
+          </button>
+          <button class="btn" style="width:100%;justify-content:flex-start;text-align:left;padding:14px;" onclick="openLoanFormModal('mensual')">
+            <i class="fa-solid fa-calendar-days" style="margin-right:10px;color:var(--brass-bright);"></i><b>Mensual</b> — una cuota por mes
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+function openLoanFormModal(periodicidad){
+  const numCuotasField = periodicidad === 'mensual'
+    ? `<select name="numCuotas" required onchange="updateLoanPreview()">${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}</select>`
+    : `<input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()">`;
+  const opcionesInteres = periodicidad === 'mensual' ? [1, 20, 30, 35, 40, 100] : [10, 15, 20, 25, 30, 35, 50, 70];
+  const tituloPeriodo = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[periodicidad];
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Nuevo préstamo <span class="pill" style="margin-left:8px;">${tituloPeriodo}</span></h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <form onsubmit="submitLoanForm(event,'${periodicidad}')">
+          <input type="hidden" name="periodicidad" value="${periodicidad}">
           <div class="field"><label>Cliente</label><input list="clients-list" name="clientName" placeholder="Nombre del cliente" required></div>
           <datalist id="clients-list">${STATE.clients.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>
           <div class="field"><label>Teléfono (opcional)</label><input name="phone" placeholder="Ej: 381 555 1234"></div>
@@ -1242,16 +1361,14 @@ function openLoanModal(){
             <div class="field"><label>Interés (% fijo total)</label>
               <select name="percent" required onchange="updateLoanPreview()">
                 <option value="">Elegí un %</option>
-                ${[10, 15, 20, 25, 30, 35, 50, 70].map(p => `<option value="${p}">${p}%</option>`).join('')}
+                ${opcionesInteres.map(p => `<option value="${p}">${p}%</option>`).join('')}
               </select>
             </div>
-            <div class="field"><label>Cantidad de cuotas</label>
-              <select name="numCuotas" required onchange="updateLoanPreview()">
-                ${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}
-              </select>
+            <div class="field"><label>Cantidad de cuotas (${periodLabel(periodicidad, true)})</label>
+              ${numCuotasField}
             </div>
           </div>
-          <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
+          ${periodicidad === 'mensual' ? `<div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>` : ''}
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" placeholder="Ej: Moto Honda Wave 110, patente ABC123"></div>
           <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
             <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Monto a devolver:</span><span id="loan-total" style="font-weight:700;">${formatMoney(0)}</span></div>
@@ -1269,12 +1386,13 @@ function updateLoanPreview(){
   const percent = Number(f.percent.value) || 0;
   const numCuotas = Number(f.numCuotas.value) || 1;
   const date = f.date.value || todayStr();
+  const periodicidad = f.periodicidad.value || 'mensual';
   const total = amount * (1 + percent / 100);
   document.getElementById('loan-total').textContent = formatMoney(total);
   document.getElementById('loan-cuota').textContent = formatMoney(total / numCuotas);
-  document.getElementById('loan-lastdate').textContent = formatDate(addMonths(date, numCuotas));
+  document.getElementById('loan-lastdate').textContent = formatDate(addPeriod(date, numCuotas, periodicidad));
 }
-function submitLoanForm(e){
+function submitLoanForm(e, periodicidad){
   e.preventDefault();
   const f = e.target;
   saveLoan({
@@ -1282,8 +1400,9 @@ function submitLoanForm(e){
     dni: f.dni.value.trim(), address: f.address.value.trim(),
     amount: Number(f.amount.value), date: f.date.value,
     percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
-    moraPercent: Number(f.moraPercent.value) || 0,
-    garantia: f.garantia.value.trim()
+    moraPercent: f.moraPercent ? (Number(f.moraPercent.value) || 0) : 0,
+    garantia: f.garantia.value.trim(),
+    periodicidad: f.periodicidad.value || periodicidad || 'mensual'
   });
 }
 
@@ -1400,11 +1519,12 @@ function openEditLoanModal(id){
   const client = STATE.clients.find(c => c.id === item.clientId) || {};
   const numCuotas = item.cuotas.length || 1;
   const tienePagos = item.cuotas.some(c => c.paidAmount > 0);
+  const periodicidadActual = item.periodicidad || 'mensual';
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
       <div class="modal-box">
         <div class="modal-head"><h3>Editar préstamo de ${esc(item.clientName)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
-        ${tienePagos ? `<div style="font-size:12.5px;background:#FEF3E2;color:#854F0B;border:1px solid #FAC775;border-radius:var(--radius);padding:9px 12px;margin-bottom:14px;">Este préstamo ya tiene pagos registrados. Si cambiás el monto, la fecha, el interés o la cantidad de cuotas, se van a regenerar todas las cuotas y se pierde el registro de los pagos ya hechos.</div>` : ''}
+        ${tienePagos ? `<div style="font-size:12.5px;background:#FEF3E2;color:#854F0B;border:1px solid #FAC775;border-radius:var(--radius);padding:9px 12px;margin-bottom:14px;">Este préstamo ya tiene pagos registrados. Si cambiás el monto, la fecha, la periodicidad, el interés o la cantidad de cuotas, se van a regenerar todas las cuotas y se pierde el registro de los pagos ya hechos.</div>` : ''}
         <form onsubmit="submitEditLoanForm(event,'${id}')">
           <div class="field"><label>Teléfono</label><input name="phone" value="${esc(client.phone || '')}" placeholder="Ej: 381 555 1234"></div>
           <div class="row-2">
@@ -1416,10 +1536,19 @@ function openEditLoanModal(id){
             <div class="field"><label>Fecha del préstamo</label><input name="date" type="date" value="${item.date}" required></div>
           </div>
           <div class="row-2">
-            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" value="${item.percent}" required></div>
+            <div class="field"><label>Periodicidad</label>
+              <select name="periodicidad">
+                <option value="diario" ${periodicidadActual === 'diario' ? 'selected' : ''}>Diario</option>
+                <option value="semanal" ${periodicidadActual === 'semanal' ? 'selected' : ''}>Semanal</option>
+                <option value="mensual" ${periodicidadActual === 'mensual' ? 'selected' : ''}>Mensual</option>
+              </select>
+            </div>
             <div class="field"><label>Cantidad de cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="${numCuotas}" required></div>
           </div>
-          <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+          <div class="row-2">
+            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" value="${item.percent}" required></div>
+            <div class="field"><label>Interés por mora (% por período, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+          </div>
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" value="${esc(item.garantia || '')}" placeholder="Ej: Moto Honda Wave 110"></div>
           <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
         </form>
@@ -1433,14 +1562,16 @@ function submitEditLoanForm(e, id){
     phone: f.phone.value.trim(), dni: f.dni.value.trim(), address: f.address.value.trim(),
     amount: Number(f.amount.value), date: f.date.value,
     percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
-    moraPercent: Number(f.moraPercent.value) || 0, garantia: f.garantia.value.trim()
+    moraPercent: Number(f.moraPercent.value) || 0, garantia: f.garantia.value.trim(),
+    periodicidad: f.periodicidad.value || 'mensual'
   });
 }
 async function editLoan(id, data){
   const loan = STATE.loans.find(l => l.id === id);
   if(!loan) return;
   const tienePagos = loan.cuotas.some(c => c.paidAmount > 0);
-  const cambioEstructural = data.amount !== loan.amount || data.percent !== loan.percent || data.numCuotas !== loan.cuotas.length || data.date !== loan.date;
+  const periodicidadActual = loan.periodicidad || 'mensual';
+  const cambioEstructural = data.amount !== loan.amount || data.percent !== loan.percent || data.numCuotas !== loan.cuotas.length || data.date !== loan.date || data.periodicidad !== periodicidadActual;
   if(tienePagos && cambioEstructural){
     if(!confirm('Vas a perder el registro de pagos ya hechos en este préstamo al regenerar las cuotas. ¿Confirmás igual?')) return;
   }
@@ -1450,9 +1581,10 @@ async function editLoan(id, data){
   loan.percent = data.percent;
   loan.moraPercent = data.moraPercent;
   loan.garantia = data.garantia;
+  loan.periodicidad = data.periodicidad;
   loan.totalToReturn = total;
   if(!tienePagos || cambioEstructural){
-    loan.cuotas = genCuotas(data.date, data.numCuotas, total);
+    loan.cuotas = genCuotas(data.date, data.numCuotas, total, data.periodicidad);
   }
   const client = STATE.clients.find(c => c.id === loan.clientId);
   if(client){ client.phone = data.phone; client.dni = data.dni; client.address = data.address; }
