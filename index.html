@@ -284,12 +284,23 @@ function itemSaldoPendiente(item){
 }
 function calcRecargoMora(cuota, item){
   if(item.refinanciadoEnId) return 0;
-  const percent = Number(item.moraPercent) || 0;
-  if(percent <= 0) return 0;
   if(cuotaEstado(cuota) !== 'vencida') return 0;
+  const pendiente = cuota.amount - cuota.paidAmount;
+  const percent = Number(item.moraPercent) || 0;
+
+  if(cuota.moraOverride){
+    const diasDesdeAjuste = daysBetween(todayStr(), cuota.moraOverride.date);
+    let extra = 0;
+    if(diasDesdeAjuste > 0 && percent > 0){
+      const mesesAdicionales = Math.ceil(diasDesdeAjuste / 30);
+      extra = Math.round(pendiente * (percent / 100) * mesesAdicionales * 100) / 100;
+    }
+    return Math.round((cuota.moraOverride.amount + extra) * 100) / 100;
+  }
+
+  if(percent <= 0) return 0;
   const diasAtraso = daysBetween(todayStr(), cuota.dueDate);
   const mesesAtraso = Math.max(1, Math.ceil(diasAtraso / 30));
-  const pendiente = cuota.amount - cuota.paidAmount;
   return Math.round(pendiente * (percent / 100) * mesesAtraso * 100) / 100;
 }
 function cuotaActualLabel(item){
@@ -752,9 +763,12 @@ function renderCuotasTable(item, type){
             <tr>
               <td>${c.n}/${item.cuotas.length}</td>
               <td>${formatDate(c.dueDate)}</td>
-              <td>${formatMoney(c.amount)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;margin-top:2px;">+ ${formatMoney(recargo)} mora</div>` : ''}</td>
+              <td>${formatMoney(c.amount)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;margin-top:2px;">+ ${formatMoney(recargo)} mora${c.moraOverride ? ' <i class="fa-solid fa-pen" style="font-size:9px;" title="Mora ajustada a mano"></i>' : ''}</div>` : ''}</td>
               <td>${statusPill(key)}</td>
-              <td style="text-align:right;">${!c.paid ? `<button class="btn btn-sm" onclick="event.stopPropagation();openPayModal('${type}','${item.id}',${i})">Registrar pago</button>` : ''}</td>
+              <td style="text-align:right;white-space:nowrap;">
+                ${est === 'vencida' ? `<button class="btn btn-sm" onclick="event.stopPropagation();openMoraModal('${type}','${item.id}',${i})"><i class="fa-solid fa-sliders" style="margin-right:4px;"></i>Modificar mora</button>` : ''}
+                ${!c.paid ? `<button class="btn btn-sm" style="margin-left:6px;" onclick="event.stopPropagation();openPayModal('${type}','${item.id}',${i})">Registrar pago</button>` : ''}
+              </td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -1522,6 +1536,53 @@ async function editSale(id, data){
   await persist('clients', STATE.clients);
   closeModal(); render();
   showToast('Venta actualizada');
+}
+
+/* ================= AJUSTAR MORA MANUALMENTE ================= */
+function openMoraModal(type, id, cuotaIndex){
+  const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
+  const cuota = item.cuotas[cuotaIndex];
+  const actual = calcRecargoMora(cuota, item);
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box" style="max-width:400px;">
+        <div class="modal-head"><h3><i class="fa-solid fa-sliders" style="color:var(--brass);margin-right:8px;"></i>Ajustar mora — Cuota ${cuota.n}/${item.cuotas.length}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13px;color:var(--paper-dim);margin-bottom:14px;line-height:1.5;">
+          Según el % de mora configurado, hoy correspondería cobrar <b style="color:var(--paper);">${formatMoney(actual)}</b> de recargo. Si el cliente tiene un motivo justificado, poné acá el monto que realmente le vas a cobrar.
+        </div>
+        <form onsubmit="submitMoraForm(event,'${type}','${id}',${cuotaIndex})">
+          <div class="field"><label>Monto de mora a cobrar</label><input name="amount" type="number" min="0" step="0.01" value="${actual}" required></div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Guardar ajuste</button>
+        </form>
+        ${cuota.moraOverride ? `<button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:12.5px;color:#A32D2D;" onclick="clearMoraOverride('${type}','${id}',${cuotaIndex})">Quitar ajuste y volver al cálculo automático</button>` : ''}
+        <div style="font-size:11.5px;color:var(--paper-dim);margin-top:12px;">Si el cliente sigue sin pagar, la mora va a seguir sumando desde este monto, con el mismo % de mora configurado.</div>
+      </div>
+    </div>`;
+}
+function submitMoraForm(e, type, id, cuotaIndex){
+  e.preventDefault();
+  const f = e.target;
+  setMoraOverride(type, id, cuotaIndex, Number(f.amount.value));
+}
+async function setMoraOverride(type, id, cuotaIndex, amount){
+  const arr = type === 'loan' ? STATE.loans : STATE.sales;
+  const item = arr.find(it => it.id === id);
+  if(!item) return;
+  item.cuotas[cuotaIndex].moraOverride = { amount, date: todayStr() };
+  if(type === 'loan'){ STATE.loans = arr.map(it => it.id === id ? item : it); await persist('loans', STATE.loans); }
+  else{ STATE.sales = arr.map(it => it.id === id ? item : it); await persist('sales', STATE.sales); }
+  closeModal(); render();
+  showToast('Mora ajustada');
+}
+async function clearMoraOverride(type, id, cuotaIndex){
+  const arr = type === 'loan' ? STATE.loans : STATE.sales;
+  const item = arr.find(it => it.id === id);
+  if(!item) return;
+  delete item.cuotas[cuotaIndex].moraOverride;
+  if(type === 'loan'){ STATE.loans = arr.map(it => it.id === id ? item : it); await persist('loans', STATE.loans); }
+  else{ STATE.sales = arr.map(it => it.id === id ? item : it); await persist('sales', STATE.sales); }
+  closeModal(); render();
+  showToast('Vuelto al cálculo automático');
 }
 
 function openPayModal(type, id, cuotaIndex, forzar){
