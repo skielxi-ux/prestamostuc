@@ -18,7 +18,7 @@
     --ink-2:#FFFFFF;
     --ink-3:#F1EFE9;
     --paper:#1C2B36;
-    --paper-dim:#69747C;
+    --paper-dim:#4E5860;
     --brass:#5B4FE0;
     --brass-bright:#463ACB;
     --brick:#A94E30;
@@ -134,6 +134,21 @@
   .sidebar-user .logout-btn{color:var(--paper-dim);cursor:pointer;font-size:12px;}
   .sidebar-user .logout-btn:hover{color:#A32D2D;}
 
+  .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .cal-nav-btn{width:32px;height:32px;border-radius:50%;border:1px solid var(--line-strong);background:#fff;color:var(--paper-dim);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;}
+  .cal-nav-btn:hover{border-color:var(--brass);color:var(--brass-bright);}
+  .cal-title{font-family:var(--font-display);font-size:18px;font-weight:600;text-transform:capitalize;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;}
+  .cal-dow{background:var(--ink-3);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--paper-dim);text-align:center;padding:8px 4px;border-bottom:1px solid var(--line);}
+  .cal-cell{min-height:96px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px;background:#fff;display:flex;flex-direction:column;gap:3px;}
+  .cal-cell:nth-child(7n){border-right:none;}
+  .cal-cell.out{background:#FBFAF8;}
+  .cal-daynum{font-family:var(--font-mono);font-size:11.5px;color:var(--paper-dim);margin-bottom:2px;}
+  .cal-cell.out .cal-daynum{color:#C7C2B5;}
+  .cal-cell.today .cal-daynum{color:#fff;background:var(--brass);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+  .cal-block{font-size:10.5px;line-height:1.3;padding:3px 5px;border-radius:2px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cal-more{font-size:10px;color:var(--paper-dim);padding:1px 5px;}
+
   @media (max-width:880px){
     .app-shell{grid-template-columns:1fr;}
     .sidebar{position:relative;height:auto;flex-direction:row;overflow-x:auto;align-items:center;padding:14px 12px;gap:4px;}
@@ -145,6 +160,8 @@
     .kpi-grid{grid-template-columns:1fr 1fr !important;}
     .main{padding:18px;}
     .row-2,.row-3{grid-template-columns:1fr;}
+    .cal-cell{min-height:64px;}
+    .cal-block{font-size:9.5px;}
   }
 </style>
 </head>
@@ -212,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6 };
+let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -299,6 +316,70 @@ function esc(str){
   return String(str ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
+/* ================= EXPORTAR CSV ================= */
+function csvCell(v){
+  const s = String(v ?? '');
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function csvNum(n){
+  return Number(n).toFixed(2).replace('.', ',');
+}
+function downloadCSV(filename, rows){
+  const csv = '\uFEFF' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('CSV descargado');
+}
+function exportClientsCSV(){
+  const rows = [['Nombre', 'Teléfono', 'DNI', 'Dirección', 'Estado', 'Saldo total']];
+  STATE.clients.forEach(c => {
+    const cLoans = STATE.loans.filter(l => l.clientId === c.id);
+    const cSales = STATE.sales.filter(s => s.clientId === c.id);
+    const saldo = cLoans.reduce((a, l) => a + itemSaldoPendiente(l), 0) + cSales.reduce((a, s) => a + itemSaldoPendiente(s), 0);
+    const moroso = [...cLoans, ...cSales].some(it => itemEstado(it) === 'vencido');
+    const tieneOperaciones = cLoans.length > 0 || cSales.length > 0;
+    const estado = moroso ? 'Moroso' : (tieneOperaciones && saldo <= 0.01) ? 'Finalizado' : 'Al día';
+    rows.push([c.name, c.phone || '', c.dni || '', c.address || '', estado, csvNum(saldo)]);
+  });
+  downloadCSV(`clientes-${todayStr()}.csv`, rows);
+}
+function exportLoansCSV(){
+  const rows = [['Cliente', 'Teléfono', 'DNI', 'Monto', 'Fecha préstamo', 'Interés %', 'Mora %', 'Garantía', 'Estado préstamo', 'Cuota N', 'Vence', 'Monto cuota', 'Pagado', 'Fecha de pago', 'Estado cuota']];
+  STATE.loans.forEach(l => {
+    const client = STATE.clients.find(c => c.id === l.clientId) || {};
+    const estadoItem = STATUS_STYLE[itemEstado(l)]?.label || '';
+    l.cuotas.forEach(c => {
+      rows.push([
+        l.clientName, client.phone || '', client.dni || '', csvNum(l.amount), formatDate(l.date),
+        l.percent, l.moraPercent || 0, l.garantia || '', estadoItem,
+        c.n, formatDate(c.dueDate), csvNum(c.amount), csvNum(c.paidAmount), c.paidDate ? formatDate(c.paidDate) : '',
+        STATUS_STYLE[cuotaEstado(c) === 'vencida' ? 'vencido' : cuotaEstado(c) === 'proxima' ? 'proximo' : cuotaEstado(c) === 'pagada' ? 'finalizado' : 'aldia'].label
+      ]);
+    });
+  });
+  downloadCSV(`prestamos-${todayStr()}.csv`, rows);
+}
+function exportSalesCSV(){
+  const rows = [['Cliente', 'Teléfono', 'DNI', 'Artículo', 'Precio total', 'Anticipo', 'Forma de pago', 'Fecha venta', 'Mora %', 'Estado venta', 'Cuota N', 'Vence', 'Monto cuota', 'Pagado', 'Fecha de pago', 'Estado cuota']];
+  STATE.sales.forEach(s => {
+    const client = STATE.clients.find(c => c.id === s.clientId) || {};
+    const estadoItem = STATUS_STYLE[itemEstado(s)]?.label || '';
+    s.cuotas.forEach(c => {
+      rows.push([
+        s.clientName, client.phone || '', client.dni || '', s.article, csvNum(s.price), csvNum(s.anticipo), s.paymentMethod, formatDate(s.date),
+        s.moraPercent || 0, estadoItem,
+        c.n, formatDate(c.dueDate), csvNum(c.amount), csvNum(c.paidAmount), c.paidDate ? formatDate(c.paidDate) : '',
+        STATUS_STYLE[cuotaEstado(c) === 'vencida' ? 'vencido' : cuotaEstado(c) === 'proxima' ? 'proximo' : cuotaEstado(c) === 'pagada' ? 'finalizado' : 'aldia'].label
+      ]);
+    });
+  });
+  downloadCSV(`articulos-${todayStr()}.csv`, rows);
+}
+
 /* ================= PERSISTENCIA (Firestore) ================= */
 // Todos los usuarios logueados leen y escriben los mismos 3 documentos:
 // data/clients, data/loans, data/sales — cada uno guarda un array bajo el campo "items".
@@ -319,10 +400,36 @@ async function persist(key, data){
 }
 async function loadAll(){
   STATE.loading = true; render();
-  const [c, l, s] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales')]);
+  const [c, l, s, cfg] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales'), safeGet('config')]);
   STATE.clients = c || []; STATE.loans = l || []; STATE.sales = s || [];
+  STATE.businessName = (cfg && cfg.businessName) || '';
   STATE.loading = false;
   render();
+  fetchDolarOficial();
+}
+function configureBusinessName(){
+  const actual = STATE.businessName || '';
+  const nuevo = prompt('¿Con qué nombre querés firmar los mensajes de WhatsApp (recordatorios y recibos)?\nPor ejemplo: "Créditos Fernández" o tu propio nombre.', actual);
+  if(nuevo === null) return;
+  STATE.businessName = nuevo.trim();
+  persist('config', { businessName: STATE.businessName });
+  render();
+  showToast('Firma actualizada');
+}
+
+/* ================= COTIZACIÓN DEL DÓLAR ================= */
+async function fetchDolarOficial(){
+  STATE.dolar = { status: 'loading' };
+  if(STATE.tab === 'dashboard') render();
+  try{
+    const res = await fetch('https://dolarapi.com/v1/dolares/oficial');
+    if(!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    STATE.dolar = { status: 'ok', compra: data.compra, venta: data.venta, fecha: data.fechaActualizacion };
+  }catch(e){
+    STATE.dolar = { status: 'error' };
+  }
+  if(STATE.tab === 'dashboard') render();
 }
 
 /* ================= AUTENTICACIÓN ================= */
@@ -601,24 +708,28 @@ function getFilteredClients(){
 function renderSidebar(){
   const due = getAllDue();
   const pendCount = due.filter(d => d.estado === 'vencida' || d.estado === 'proxima').length;
-  const item = (tab, icon, label, dot) => `
+  const item = (tab, icon, label, dot, iconColor) => `
     <div class="nav-item ${STATE.tab === tab ? 'active' : ''}" onclick="goTab('${tab}')">
-      <i class="fa-solid ${icon}"></i> ${label} ${dot ? '<span class="dot"></span>' : ''}
+      <i class="fa-solid ${icon}" ${iconColor && STATE.tab !== tab ? `style="color:${iconColor};"` : ''}></i> ${label} ${dot ? '<span class="dot"></span>' : ''}
     </div>`;
   document.getElementById('sidebar').innerHTML = `
     <div class="sidebar-brand"><i class="fa-solid fa-building-columns"></i> Libro de Cuentas</div>
     <div class="nav-group">
       <div class="nav-group-label">Principal</div>
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
-      ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0)}
+      ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
       ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
       ${item('ventas', 'fa-cart-shopping', 'Artículos')}
       ${item('clientes', 'fa-users', 'Clientes')}
+      ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
       ${item('evolucion', 'fa-chart-line', 'Evolución')}
     </div>
     <div class="sidebar-foot">
       <div class="agname">${STATE.clients.length} clientes cargados</div>
       <div>${STATE.loans.length} préstamos · ${STATE.sales.length} ventas</div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);cursor:pointer;" onclick="configureBusinessName()">
+        <i class="fa-solid fa-signature" style="margin-right:6px;"></i>${STATE.businessName ? `Firma: ${esc(STATE.businessName)}` : 'Configurar firma de WhatsApp'}
+      </div>
       <div class="sidebar-user">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(STATE.userEmail)}</span>
         <span class="logout-btn" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket"></i></span>
@@ -628,30 +739,6 @@ function renderSidebar(){
 }
 
 /* ================= RENDER: TABLAS AUXILIARES ================= */
-function renderDueTable(rows){
-  if(rows.length === 0) return '';
-  return `
-    <div class="card" style="padding:0;overflow:hidden;margin-bottom:8px;">
-      <table>
-        <thead><tr><th>Cliente</th><th>Detalle</th><th>Cuota</th><th>Vence</th><th>Monto</th></tr></thead>
-        <tbody>
-          ${rows.map(d => {
-            const recargo = calcRecargoMora(d.cuota, d.item);
-            return `
-            <tr>
-              <td style="font-weight:600;">${esc(d.item.clientName)}</td>
-              <td style="color:var(--paper-dim);">${d.type === 'loan' ? 'Préstamo' : esc(d.item.article)}</td>
-              <td>${d.cuota.n}/${d.item.cuotas.length}</td>
-              <td>${formatDate(d.cuota.dueDate)}</td>
-              <td style="font-weight:600;">${formatMoney(d.cuota.amount - d.cuota.paidAmount + recargo)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;font-weight:400;margin-top:2px;">incluye ${formatMoney(recargo)} de mora</div>` : ''}</td>
-            </tr>
-          `;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>`;
-}
-
 function renderCuotasTable(item, type){
   return `
     <table class="cuotas-table">
@@ -698,23 +785,23 @@ function renderItemCard(item, type){
           <div class="cuota-line">Cuota ${cuotaActualLabel(item)} · saldo pendiente <b>${formatMoney(saldo)}</b></div>
         </div>
         <div class="item-actions">
-          ${puedeRefinanciar ? `<button class="btn btn-sm" onclick="event.stopPropagation();openRefinanceModal('${type}','${item.id}')"><i class="fa-solid fa-rotate" style="margin-right:4px;"></i>Refinanciar</button>` : ''}
+          ${!item.refinanciadoEnId ? `<button class="btn btn-sm" onclick="event.stopPropagation();${type === 'loan' ? 'openEditLoanModal' : 'openEditSaleModal'}('${item.id}')"><i class="fa-solid fa-pen" style="margin-right:4px;"></i>Editar</button>` : ''}
           <button class="btn btn-ghost" style="color:#E2726B;" onclick="event.stopPropagation();${delFn}('${item.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button>
           <i class="fa-solid fa-chevron-${expanded ? 'down' : 'right'}" style="color:var(--paper-dim);"></i>
         </div>
       </div>
       ${expanded ? renderCuotasTable(item, type) : ''}
+      <button class="btn btn-sm" style="width:100%;margin-top:10px;" onclick="toggleExpand('${item.id}')">
+        <i class="fa-solid fa-chevron-${expanded ? 'up' : 'down'}" style="margin-right:6px;"></i>${expanded ? 'Ocultar detalle' : 'Desplegar detalle'}
+      </button>
     </div>`;
 }
 
 /* ================= RENDER: VISTAS ================= */
 function renderDashboard(){
-  const due = getAllDue();
-  const vencidas = due.filter(d => d.estado === 'vencida');
-  const proximas = due.filter(d => d.estado === 'proxima');
   const stats = getStats();
   return `
-    <div class="main-head"><div><h1>Dashboard</h1><p class="sub">Resumen de préstamos, artículos y vencimientos</p></div></div>
+    <div class="main-head"><div><h1>Dashboard</h1><p class="sub">Resumen financiero de préstamos y artículos</p></div></div>
 
     <div class="eyebrow" style="margin-bottom:8px;"><i class="fa-solid fa-sack-dollar"></i> Préstamos</div>
     <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
@@ -732,10 +819,135 @@ function renderDashboard(){
       <div class="kpi"><button class="kpi-info" onclick="showKpiInfo('vencidasArticulos')">+</button><div class="lbl">Cuotas vencidas</div><div class="val brick">${stats.vencidasVentas}</div></div>
     </div>
 
-    <div style="margin-top:24px;">
-    ${vencidas.length > 0 ? `<div class="eyebrow" style="color:#A32D2D;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Vencidas</div>${renderDueTable(vencidas)}` : ''}
-    ${proximas.length > 0 ? `<div class="eyebrow" style="color:#854F0B;margin:20px 0 8px;"><i class="fa-regular fa-clock"></i> Próximas a vencer (7 días)</div>${renderDueTable(proximas)}` : ''}
-    ${vencidas.length === 0 && proximas.length === 0 ? `<div class="card empty-row">No hay cuotas vencidas ni próximas a vencer.</div>` : ''}
+    <div style="font-size:12.5px;color:var(--paper-dim);margin-top:20px;display:flex;align-items:center;gap:6px;">
+      <i class="fa-solid fa-bell"></i> Para ver y accionar las cuotas vencidas o próximas a vencer, andá a la pestaña <b style="color:var(--paper);">Notificaciones</b>.
+    </div>
+
+    ${renderDolarBanner()}
+  `;
+}
+function renderDolarBanner(){
+  const d = STATE.dolar;
+  let content;
+  if(!d || d.status === 'loading'){
+    content = `<span style="color:var(--paper-dim);font-size:13px;">Buscando la cotización del día…</span>`;
+  } else if(d.status === 'error'){
+    content = `
+      <span style="color:var(--paper-dim);font-size:13px;">No se pudo obtener la cotización en este momento.</span>
+      <button class="btn btn-sm" onclick="fetchDolarOficial()"><i class="fa-solid fa-rotate-right"></i>Reintentar</button>`;
+  } else {
+    const fecha = d.fecha ? new Date(d.fecha).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    content = `
+      <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
+        <div><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--paper-dim);text-transform:uppercase;letter-spacing:.04em;">Compra</span><div style="font-family:var(--font-display);font-size:18px;font-weight:600;">${formatMoney(d.compra)}</div></div>
+        <div><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--paper-dim);text-transform:uppercase;letter-spacing:.04em;">Venta</span><div style="font-family:var(--font-display);font-size:18px;font-weight:600;">${formatMoney(d.venta)}</div></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--paper-dim);margin-top:6px;">Actualizado ${fecha} · Fuente: <a href="https://dolarhoy.com" target="_blank" rel="noopener" style="color:var(--brass-bright);text-decoration:none;font-weight:600;">DolarHoy.com</a></div>`;
+  }
+  return `
+    <div class="card" style="margin-top:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--ink-3);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <i class="fa-solid fa-dollar-sign" style="color:var(--brass-bright);"></i>
+        </div>
+        <div>
+          <div style="font-family:var(--font-display);font-size:14px;font-weight:700;">Dólar oficial hoy</div>
+          ${content}
+        </div>
+      </div>
+    </div>`;
+}
+
+function getCalendarCuotas(year, month){
+  const items = [];
+  const push = (item, type) => {
+    if(item.refinanciadoEnId) return;
+    item.cuotas.forEach((c, i) => {
+      const d = new Date(c.dueDate + 'T00:00:00');
+      if(d.getFullYear() === year && d.getMonth() === month){
+        items.push({ day: d.getDate(), clientName: item.clientName, clientId: item.clientId, amount: c.amount - c.paidAmount + calcRecargoMora(c, item), estado: cuotaEstado(c) });
+      }
+    });
+  };
+  STATE.loans.forEach(l => push(l, 'loan'));
+  STATE.sales.forEach(s => push(s, 'sale'));
+  return items;
+}
+function calendarPrevMonth(){
+  STATE.calMonth--;
+  if(STATE.calMonth < 0){ STATE.calMonth = 11; STATE.calYear--; }
+  render();
+}
+function calendarNextMonth(){
+  STATE.calMonth++;
+  if(STATE.calMonth > 11){ STATE.calMonth = 0; STATE.calYear++; }
+  render();
+}
+function calendarSetMonth(v){ STATE.calMonth = Number(v); render(); }
+function calendarSetYear(v){ STATE.calYear = Number(v); render(); }
+const MESES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+function renderCalendario(){
+  const year = STATE.calYear, month = STATE.calMonth;
+  const cuotas = getCalendarCuotas(year, month);
+  const cuotasByDay = {};
+  cuotas.forEach(c => { (cuotasByDay[c.day] = cuotasByDay[c.day] || []).push(c); });
+
+  const firstOfMonth = new Date(year, month, 1);
+  const weekdayIndex = (firstOfMonth.getDay() + 6) % 7; // lunes = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = weekdayIndex + daysInMonth;
+  const rows = Math.ceil(totalCells / 7);
+  const startDate = new Date(year, month, 1 - weekdayIndex);
+  const todayIso = todayStr();
+  const monthLabel = firstOfMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  const dow = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  const estadoKeyMap = { pagada: 'finalizado', vencida: 'vencido', proxima: 'proximo', pendiente: 'aldia' };
+
+  let cellsHtml = '';
+  for(let i = 0; i < rows * 7; i++){
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + i);
+    const inMonth = d.getMonth() === month;
+    const iso = d.toISOString().slice(0, 10);
+    const dayCuotas = inMonth ? (cuotasByDay[d.getDate()] || []) : [];
+    const isToday = iso === todayIso;
+    const visibles = dayCuotas.slice(0, 3);
+    const resto = dayCuotas.length - visibles.length;
+    cellsHtml += `
+      <div class="cal-cell ${inMonth ? '' : 'out'} ${isToday ? 'today' : ''}">
+        <div class="cal-daynum">${d.getDate()}</div>
+        ${visibles.map(c => {
+          const style = STATUS_STYLE[estadoKeyMap[c.estado]];
+          return `<div class="cal-block" style="${style.css}" onclick="STATE.tab='clientes';openClient('${c.clientId}')" title="${esc(c.clientName)} · ${formatMoney(c.amount)}">${esc(c.clientName)} · ${formatMoney(c.amount)}</div>`;
+        }).join('')}
+        ${resto > 0 ? `<div class="cal-more">+${resto} más</div>` : ''}
+      </div>`;
+  }
+
+  return `
+    <div class="main-head"><div><h1>Calendario de pagos</h1><p class="sub">Cuándo le toca pagar a cada cliente, de un vistazo</p></div></div>
+    <div class="cal-nav">
+      <button class="cal-nav-btn" onclick="calendarPrevMonth()"><i class="fa-solid fa-chevron-left"></i></button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select onchange="calendarSetMonth(this.value)" style="width:auto;min-width:140px;font-family:var(--font-display);font-weight:600;text-transform:capitalize;">
+          ${MESES_LARGO.map((m, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${m}</option>`).join('')}
+        </select>
+        <select onchange="calendarSetYear(this.value)" style="width:auto;min-width:90px;font-family:var(--font-display);font-weight:600;">
+          ${Array.from({ length: 25 }, (_, i) => 2026 + i).map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+      </div>
+      <button class="cal-nav-btn" onclick="calendarNextMonth()"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    <div class="cal-grid">
+      ${dow.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+      ${cellsHtml}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:var(--paper-dim);">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#FDEDEC;border:1px solid #F7C1C1;margin-right:5px;"></span>Vencida</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#FEF3E2;border:1px solid #FAC775;margin-right:5px;"></span>Próxima a vencer</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#F1EFE9;border:1px solid #D2CDBF;margin-right:5px;"></span>Normal</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f0fdf4;border:1px solid #bbf7d0;margin-right:5px;"></span>Pagada</span>
     </div>
   `;
 }
@@ -798,11 +1010,22 @@ function initEvolucionChart(){
 }
 
 function renderNotificaciones(){
-  const due = getAllDue().filter(d => d.estado === 'vencida' || d.estado === 'proxima');
+  const due = getAllDue().filter(d => d.estado === 'vencida' || d.estado === 'proxima')
+    .filter(d => !STATE.notifDismissed.has(`${d.type}-${d.item.id}-${d.cuotaIndex}`));
   return `
-    <div class="main-head"><div><h1>Notificaciones</h1><p class="sub">Avisos de cuotas vencidas y próximas a vencer, listos para mandarle un recordatorio al cliente</p></div></div>
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Notificaciones</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Avisos de cuotas vencidas y próximas a vencer, listos para mandarle un recordatorio al cliente</p></div>
+      ${due.length > 0 ? `<button class="btn btn-sm" onclick="clearAllNotifications()"><i class="fa-solid fa-broom"></i>Limpiar notificaciones</button>` : ''}
+    </div>
     ${due.length === 0 ? `<div class="card empty-row">No hay avisos por ahora. Cuando una cuota esté por vencer (7 días o menos) o vencida, va a aparecer acá.</div>` : due.map(renderNotifCard).join('')}
   `;
+}
+function clearAllNotifications(){
+  getAllDue().filter(d => d.estado === 'vencida' || d.estado === 'proxima').forEach(d => {
+    STATE.notifDismissed.add(`${d.type}-${d.item.id}-${d.cuotaIndex}`);
+  });
+  render();
+  showToast('Notificaciones limpiadas — vuelven a aparecer si la situación cambia o recargás la página');
 }
 
 function renderNotifCard(d){
@@ -820,7 +1043,7 @@ function renderNotifCard(d){
       : `En ${dias} día${dias === 1 ? '' : 's'}, <b>${esc(d.item.clientName)}</b> debe pagar la cuota ${d.cuota.n}/${d.item.cuotas.length} — ${monto}.`;
   }
   const icon = vencida ? 'fa-triangle-exclamation' : 'fa-bell';
-  const iconColor = vencida ? '#A32D2D' : '#854F0B';
+  const iconColor = vencida ? '#A32D2D' : '#1DB954';
   return `
     <div class="card" style="margin-bottom:10px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;">
       <i class="fa-solid ${icon}" style="color:${iconColor};font-size:16px;margin-top:2px;"></i>
@@ -829,7 +1052,7 @@ function renderNotifCard(d){
         <div style="font-size:12px;color:var(--paper-dim);margin-top:4px;">${d.type === 'loan' ? 'Préstamo' : esc(d.item.article)} · vence ${formatDate(d.cuota.dueDate)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="btn btn-sm" onclick="openReminderModal('${d.type}','${d.item.id}',${d.cuotaIndex})"><i class="fa-brands fa-whatsapp" style="margin-right:4px;"></i>Recordar</button>
+        <button class="btn btn-sm" style="background:#25D366;border-color:#25D366;color:#fff;" onclick="openReminderModal('${d.type}','${d.item.id}',${d.cuotaIndex})"><i class="fa-brands fa-whatsapp" style="margin-right:4px;"></i>Recordar al cliente</button>
       </div>
     </div>`;
 }
@@ -838,7 +1061,10 @@ function renderPrestamos(){
   return `
     <div class="toolbar">
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Préstamos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.loans.length} préstamos cargados</p></div>
-      <button class="btn btn-solid" onclick="openLoanModal()"><i class="fa-solid fa-plus"></i>Nuevo préstamo</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="exportLoansCSV()"><i class="fa-solid fa-file-csv"></i>Exportar CSV</button>
+        <button class="btn btn-solid" onclick="openLoanModal()"><i class="fa-solid fa-plus"></i>Nuevo préstamo</button>
+      </div>
     </div>
     ${STATE.loans.length === 0 ? `<div class="card empty-row">Todavía no cargaste préstamos.</div>` : STATE.loans.map(l => renderItemCard(l, 'loan')).join('')}
   `;
@@ -847,7 +1073,10 @@ function renderVentas(){
   return `
     <div class="toolbar">
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Artículos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.sales.length} artículos vendidos financiados</p></div>
-      <button class="btn btn-solid" onclick="openSaleModal()"><i class="fa-solid fa-plus"></i>Nueva venta</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="exportSalesCSV()"><i class="fa-solid fa-file-csv"></i>Exportar CSV</button>
+        <button class="btn btn-solid" onclick="openSaleModal()"><i class="fa-solid fa-plus"></i>Nueva venta</button>
+      </div>
     </div>
     ${STATE.sales.length === 0 ? `<div class="card empty-row">Todavía no cargaste ventas de artículos.</div>` : STATE.sales.map(s => renderItemCard(s, 'sale')).join('')}
   `;
@@ -865,6 +1094,7 @@ function renderClientesList(){
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Clientes</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Cuenta corriente y estado de cada cliente</p></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         ${filterSelect}
+        <button class="btn btn-sm" onclick="exportClientsCSV()"><i class="fa-solid fa-file-csv"></i>Exportar CSV</button>
         <button class="btn btn-danger btn-sm" onclick="deleteAllClients()"><i class="fa-solid fa-trash"></i>Borrar todos los clientes</button>
       </div>
     </div>
@@ -883,7 +1113,10 @@ function renderClientesList(){
               <td style="color:var(--paper-dim);">${esc(c.phone) || '-'}</td>
               <td>${estadoPill}</td>
               <td style="text-align:right;font-weight:600;">${formatMoney(c.saldo)}</td>
-              <td style="text-align:right;"><button class="btn btn-ghost" style="color:#E2726B;" onclick="event.stopPropagation();deleteClient('${c.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button></td>
+              <td style="text-align:right;white-space:nowrap;">
+                ${c.phone ? `<button class="btn btn-ghost" style="color:#25D366;" title="Contactar por WhatsApp" onclick="event.stopPropagation();contactWhatsapp('${c.phone.replace(/[^0-9]/g, '')}')"><i class="fa-brands fa-whatsapp" style="margin:0;font-size:16px;"></i></button>` : ''}
+                <button class="btn btn-ghost" style="color:#E2726B;" onclick="event.stopPropagation();deleteClient('${c.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button>
+              </td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -903,7 +1136,10 @@ function renderClienteDetail(){
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <button class="btn btn-ghost" onclick="STATE.selectedClientId=null;render();"><i class="fa-solid fa-arrow-left"></i>Volver</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.id}')"><i class="fa-solid fa-trash"></i>Borrar cliente</button>
+      <div style="display:flex;gap:10px;">
+        ${c.phone ? `<button class="btn btn-sm" style="background:#25D366;border-color:#25D366;color:#fff;" onclick="contactWhatsapp('${c.phone.replace(/[^0-9]/g, '')}')"><i class="fa-brands fa-whatsapp"></i>Contactar por WhatsApp</button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.id}')"><i class="fa-solid fa-trash"></i>Borrar cliente</button>
+      </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
       <div style="font-family:var(--font-display);font-size:20px;font-weight:700;">${esc(c.name)}</div>
@@ -932,6 +1168,7 @@ function render(skipSearchSync){
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
   else if(STATE.tab === 'ventas') html = renderVentas();
   else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
+  else if(STATE.tab === 'calendario') html = renderCalendario();
   else if(STATE.tab === 'evolucion') html = renderEvolucion();
   document.getElementById('content').innerHTML = html;
   if(STATE.tab === 'evolucion') initEvolucionChart();
@@ -988,8 +1225,17 @@ function openLoanModal(){
             <div class="field"><label>Fecha del préstamo</label><input name="date" type="date" value="${todayStr()}" required oninput="updateLoanPreview()"></div>
           </div>
           <div class="row-2">
-            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" required oninput="updateLoanPreview()"></div>
-            <div class="field"><label>Cantidad de cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()"></div>
+            <div class="field"><label>Interés (% fijo total)</label>
+              <select name="percent" required onchange="updateLoanPreview()">
+                <option value="">Elegí un %</option>
+                ${[10, 15, 20, 25, 30, 35, 50, 70].map(p => `<option value="${p}">${p}%</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Cantidad de cuotas</label>
+              <select name="numCuotas" required onchange="updateLoanPreview()">
+                ${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" placeholder="Ej: Moto Honda Wave 110, patente ABC123"></div>
@@ -1133,9 +1379,185 @@ function submitRefinanceForm(e, type, id){
   });
 }
 
-function openPayModal(type, id, cuotaIndex){
+/* ================= EDITAR PRÉSTAMO ================= */
+function openEditLoanModal(id){
+  const item = STATE.loans.find(l => l.id === id);
+  if(!item) return;
+  const client = STATE.clients.find(c => c.id === item.clientId) || {};
+  const numCuotas = item.cuotas.length || 1;
+  const tienePagos = item.cuotas.some(c => c.paidAmount > 0);
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Editar préstamo de ${esc(item.clientName)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        ${tienePagos ? `<div style="font-size:12.5px;background:#FEF3E2;color:#854F0B;border:1px solid #FAC775;border-radius:var(--radius);padding:9px 12px;margin-bottom:14px;">Este préstamo ya tiene pagos registrados. Si cambiás el monto, la fecha, el interés o la cantidad de cuotas, se van a regenerar todas las cuotas y se pierde el registro de los pagos ya hechos.</div>` : ''}
+        <form onsubmit="submitEditLoanForm(event,'${id}')">
+          <div class="field"><label>Teléfono</label><input name="phone" value="${esc(client.phone || '')}" placeholder="Ej: 381 555 1234"></div>
+          <div class="row-2">
+            <div class="field"><label>DNI</label><input name="dni" value="${esc(client.dni || '')}"></div>
+            <div class="field"><label>Dirección</label><input name="address" value="${esc(client.address || '')}"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Monto solicitado</label><input name="amount" type="number" min="0" step="0.01" value="${item.amount}" required></div>
+            <div class="field"><label>Fecha del préstamo</label><input name="date" type="date" value="${item.date}" required></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" value="${item.percent}" required></div>
+            <div class="field"><label>Cantidad de cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="${numCuotas}" required></div>
+          </div>
+          <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+          <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" value="${esc(item.garantia || '')}" placeholder="Ej: Moto Honda Wave 110"></div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
+        </form>
+      </div>
+    </div>`;
+}
+function submitEditLoanForm(e, id){
+  e.preventDefault();
+  const f = e.target;
+  editLoan(id, {
+    phone: f.phone.value.trim(), dni: f.dni.value.trim(), address: f.address.value.trim(),
+    amount: Number(f.amount.value), date: f.date.value,
+    percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
+    moraPercent: Number(f.moraPercent.value) || 0, garantia: f.garantia.value.trim()
+  });
+}
+async function editLoan(id, data){
+  const loan = STATE.loans.find(l => l.id === id);
+  if(!loan) return;
+  const tienePagos = loan.cuotas.some(c => c.paidAmount > 0);
+  const cambioEstructural = data.amount !== loan.amount || data.percent !== loan.percent || data.numCuotas !== loan.cuotas.length || data.date !== loan.date;
+  if(tienePagos && cambioEstructural){
+    if(!confirm('Vas a perder el registro de pagos ya hechos en este préstamo al regenerar las cuotas. ¿Confirmás igual?')) return;
+  }
+  const total = Math.round(data.amount * (1 + data.percent / 100) * 100) / 100;
+  loan.amount = data.amount;
+  loan.date = data.date;
+  loan.percent = data.percent;
+  loan.moraPercent = data.moraPercent;
+  loan.garantia = data.garantia;
+  loan.totalToReturn = total;
+  if(!tienePagos || cambioEstructural){
+    loan.cuotas = genCuotas(data.date, data.numCuotas, total);
+  }
+  const client = STATE.clients.find(c => c.id === loan.clientId);
+  if(client){ client.phone = data.phone; client.dni = data.dni; client.address = data.address; }
+  STATE.loans = STATE.loans.map(l => l.id === id ? loan : l);
+  await persist('loans', STATE.loans);
+  await persist('clients', STATE.clients);
+  closeModal(); render();
+  showToast('Préstamo actualizado');
+}
+
+/* ================= EDITAR VENTA ================= */
+function openEditSaleModal(id){
+  const item = STATE.sales.find(s => s.id === id);
+  if(!item) return;
+  const client = STATE.clients.find(c => c.id === item.clientId) || {};
+  const numCuotas = item.cuotas.length || 1;
+  const tienePagos = item.cuotas.some(c => c.paidAmount > 0);
+  const metodos = ['Efectivo', 'Transferencia', 'Tarjeta', 'Mixto'];
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>Editar venta de ${esc(item.clientName)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        ${tienePagos ? `<div style="font-size:12.5px;background:#FEF3E2;color:#854F0B;border:1px solid #FAC775;border-radius:var(--radius);padding:9px 12px;margin-bottom:14px;">Esta venta ya tiene pagos registrados. Si cambiás el precio, el anticipo, la fecha o la cantidad de cuotas, se van a regenerar todas las cuotas y se pierde el registro de los pagos ya hechos.</div>` : ''}
+        <form onsubmit="submitEditSaleForm(event,'${id}')">
+          <div class="field"><label>Teléfono</label><input name="phone" value="${esc(client.phone || '')}"></div>
+          <div class="row-2">
+            <div class="field"><label>DNI</label><input name="dni" value="${esc(client.dni || '')}"></div>
+            <div class="field"><label>Dirección</label><input name="address" value="${esc(client.address || '')}"></div>
+          </div>
+          <div class="field"><label>Artículo</label><input name="article" value="${esc(item.article)}" required></div>
+          <div class="row-2">
+            <div class="field"><label>Fecha de venta</label><input name="date" type="date" value="${item.date}" required></div>
+            <div class="field"><label>Forma de pago</label>
+              <select name="paymentMethod">${metodos.map(m => `<option ${item.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div class="row-3">
+            <div class="field"><label>Precio total</label><input name="price" type="number" min="0" step="0.01" value="${item.price}" required></div>
+            <div class="field"><label>Anticipo</label><input name="anticipo" type="number" min="0" step="0.01" value="${item.anticipo}"></div>
+            <div class="field"><label>Cant. cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="${numCuotas}" required></div>
+          </div>
+          <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
+        </form>
+      </div>
+    </div>`;
+}
+function submitEditSaleForm(e, id){
+  e.preventDefault();
+  const f = e.target;
+  editSale(id, {
+    phone: f.phone.value.trim(), dni: f.dni.value.trim(), address: f.address.value.trim(),
+    article: f.article.value.trim(), price: Number(f.price.value), anticipo: Number(f.anticipo.value) || 0,
+    date: f.date.value, paymentMethod: f.paymentMethod.value,
+    numCuotas: Number(f.numCuotas.value), moraPercent: Number(f.moraPercent.value) || 0
+  });
+}
+async function editSale(id, data){
+  const sale = STATE.sales.find(s => s.id === id);
+  if(!sale) return;
+  const tienePagos = sale.cuotas.some(c => c.paidAmount > 0);
+  const currentNumCuotas = sale.cuotas.length || 1;
+  const cambioEstructural = data.price !== sale.price || data.anticipo !== sale.anticipo || data.numCuotas !== currentNumCuotas || data.date !== sale.date;
+  if(tienePagos && cambioEstructural){
+    if(!confirm('Vas a perder el registro de pagos ya hechos en esta venta al regenerar las cuotas. ¿Confirmás igual?')) return;
+  }
+  sale.article = data.article;
+  sale.price = data.price;
+  sale.anticipo = data.anticipo;
+  sale.date = data.date;
+  sale.paymentMethod = data.paymentMethod;
+  sale.moraPercent = data.moraPercent;
+  if(!tienePagos || cambioEstructural){
+    const financed = Math.max(data.price - data.anticipo, 0);
+    sale.cuotas = financed > 0 ? genCuotas(data.date, data.numCuotas, financed) : [];
+  }
+  const client = STATE.clients.find(c => c.id === sale.clientId);
+  if(client){ client.phone = data.phone; client.dni = data.dni; client.address = data.address; }
+  STATE.sales = STATE.sales.map(s => s.id === id ? sale : s);
+  await persist('sales', STATE.sales);
+  await persist('clients', STATE.clients);
+  closeModal(); render();
+  showToast('Venta actualizada');
+}
+
+function openPayModal(type, id, cuotaIndex, forzar){
   const item = type === 'loan' ? STATE.loans.find(l => l.id === id) : STATE.sales.find(s => s.id === id);
   const cuota = item.cuotas[cuotaIndex];
+
+  const cuotaAnteriorPendiente = item.cuotas.slice(0, cuotaIndex).find(c => !c.paid);
+  if(cuotaAnteriorPendiente){
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+        <div class="modal-box" style="max-width:380px;">
+          <div class="modal-head"><h3><i class="fa-solid fa-circle-exclamation" style="color:#A32D2D;margin-right:8px;"></i>Todavía no podés</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+          <div style="font-size:13.5px;line-height:1.6;color:var(--paper-dim);">
+            Para registrar la cuota ${cuota.n}/${item.cuotas.length}, primero tenés que registrar el pago de la <b style="color:var(--paper);">cuota ${cuotaAnteriorPendiente.n}</b>, que todavía figura sin pagar. Las cuotas se cobran en orden.
+          </div>
+          <button class="btn btn-solid" style="width:100%;margin-top:16px;" onclick="closeModal();openPayModal('${type}','${id}',${item.cuotas.indexOf(cuotaAnteriorPendiente)})">Ir a pagar la cuota ${cuotaAnteriorPendiente.n}</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if(!forzar && cuota.dueDate > todayStr()){
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+        <div class="modal-box" style="max-width:380px;">
+          <div class="modal-head"><h3><i class="fa-solid fa-calendar-xmark" style="color:#854F0B;margin-right:8px;"></i>Todavía no venció</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+          <div style="font-size:13.5px;line-height:1.6;color:var(--paper-dim);">
+            La cuota ${cuota.n}/${item.cuotas.length} vence recién el <b style="color:var(--paper);">${formatDate(cuota.dueDate)}</b>. No debería registrarse como pagada antes de esa fecha.
+          </div>
+          <button class="btn btn-solid" style="width:100%;margin-top:16px;" onclick="closeModal()">Entendido</button>
+          <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:12.5px;" onclick="openPayModal('${type}','${id}',${cuotaIndex},true)">El cliente pagó antes de tiempo, registrar igual</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   const remaining = Math.round((cuota.amount - cuota.paidAmount) * 100) / 100;
   const recargo = calcRecargoMora(cuota, item);
   const totalHoy = Math.round((remaining + recargo) * 100) / 100;
@@ -1173,18 +1595,24 @@ function buildReceiptText(type, item, cuota, amountPaid, date, recargoIncluido){
   const saldoTotal = itemSaldoPendiente(item);
   const concepto = type === 'loan' ? 'Préstamo' : `Venta - ${item.article}`;
   const lines = [
-    'RECIBO DE PAGO',
-    '— Libro de Cuentas —',
+    '🧾 *RECIBO DE PAGO*',
+    STATE.businessName ? `_${STATE.businessName}_` : '_Libro de Cuentas_',
     '',
-    `Cliente: ${item.clientName}`,
-    `Concepto: ${concepto}`,
-    `Cuota: ${cuota.n}/${item.cuotas.length}`,
-    `Fecha de pago: ${formatDate(date)}`,
-    `Monto abonado: ${formatMoney(amountPaid)}`,
-    recargoIncluido > 0 ? `(incluye recargo por mora: ${formatMoney(recargoIncluido)})` : null,
-    cuotaRemaining > 0 ? `Saldo de esta cuota: ${formatMoney(cuotaRemaining)}` : 'Cuota saldada.',
-    `Saldo total pendiente: ${formatMoney(saldoTotal)}`
-  ].filter(Boolean);
+    `👤 Cliente: ${item.clientName}`,
+    '',
+    `📄 Concepto: ${concepto}`,
+    '',
+    `🔢 Cuota: ${cuota.n}/${item.cuotas.length}`,
+    '',
+    `📅 Fecha de pago: ${formatDate(date)}`,
+    '',
+    `💰 Monto abonado: *${formatMoney(amountPaid)}*`,
+    recargoIncluido > 0 ? `\n⚠️ Incluye recargo por mora: ${formatMoney(recargoIncluido)}` : null,
+    '',
+    cuotaRemaining > 0 ? `◻️ Saldo de esta cuota: ${formatMoney(cuotaRemaining)}` : '✅ Cuota saldada.',
+    '',
+    `📊 Saldo total pendiente: *${formatMoney(saldoTotal)}*`
+  ].filter(l => l !== null);
   return lines.join('\n');
 }
 
@@ -1282,7 +1710,8 @@ function buildReminderText(item, cuota){
       ? `tu cuota ${cuota.n}/${item.cuotas.length} vence hoy`
       : `tu cuota ${cuota.n}/${item.cuotas.length} vence en ${dias} día${dias === 1 ? '' : 's'} (${formatDate(cuota.dueDate)})`;
   }
-  return `Hola ${item.clientName}! Te escribo para recordarte que ${situacion}, por un monto de ${monto}. Cualquier consulta, avisame. ¡Gracias!`;
+  const firma = STATE.businessName ? `\n\n— ${STATE.businessName}` : '';
+  return `Hola ${item.clientName}! Te escribo para recordarte que ${situacion}, por un monto de ${monto}. Cualquier consulta, avisame. ¡Gracias!${firma}`;
 }
 
 function openReminderModal(type, id, cuotaIndex){
@@ -1312,6 +1741,10 @@ function sendReminderWhatsapp(phoneDigits){
   const text = encodeURIComponent(LAST_REMINDER_TEXT);
   const url = phoneDigits ? `https://wa.me/${phoneDigits}?text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
   window.open(url, '_blank');
+}
+function contactWhatsapp(phoneDigits){
+  if(!phoneDigits){ showToast('Este cliente no tiene teléfono cargado'); return; }
+  window.open(`https://wa.me/${phoneDigits}`, '_blank');
 }
 
 /* ================= INIT ================= */
