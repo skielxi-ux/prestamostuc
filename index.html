@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null };
+let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -798,11 +798,17 @@ function getFilteredClients(){
     const saldo = cLoans.reduce((a, l) => a + itemSaldoPendiente(l), 0) + cSales.reduce((a, s) => a + itemSaldoPendiente(s), 0);
     const moroso = [...cLoans, ...cSales].some(it => itemEstado(it) === 'vencido');
     const tieneOperaciones = cLoans.length > 0 || cSales.length > 0;
-    return { ...c, cLoans, cSales, saldo, moroso, tieneOperaciones };
+    const rating = calcClientRating(c.id);
+    return { ...c, cLoans, cSales, saldo, moroso, tieneOperaciones, rating };
   });
   if(STATE.clientFilter === 'debe') result = result.filter(c => c.saldo > 0.01);
   else if(STATE.clientFilter === 'finalizado') result = result.filter(c => c.tieneOperaciones && c.saldo <= 0.01);
+  if(STATE.starFilter) result = result.filter(c => c.rating.stars === STATE.starFilter);
   return result.sort((a, b) => (b.moroso - a.moroso) || a.name.localeCompare(b.name));
+}
+function toggleStarFilter(n){
+  STATE.starFilter = STATE.starFilter === n ? null : n;
+  render(true);
 }
 
 /* ================= RENDER: SIDEBAR ================= */
@@ -1282,6 +1288,15 @@ function renderClientesList(){
       <option value="debe" ${STATE.clientFilter === 'debe' ? 'selected' : ''}>Con deuda pendiente</option>
       <option value="finalizado" ${STATE.clientFilter === 'finalizado' ? 'selected' : ''}>Cuentas finalizadas (ya pagaron todo)</option>
     </select>`;
+  const starButtons = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <span style="font-size:12px;color:var(--paper-dim);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.04em;">Filtrar por calificación:</span>
+      ${[1, 2, 3, 4, 5].map(n => `
+        <button class="btn btn-sm" style="${STATE.starFilter === n ? `background:var(--brass);border-color:var(--brass);color:#fff;` : ''}" onclick="toggleStarFilter(${n})">
+          ${'<i class="fa-solid fa-star" style="font-size:10px;"></i>'.repeat(n)} ${n}
+        </button>`).join('')}
+      ${STATE.starFilter ? `<button class="btn btn-ghost btn-sm" onclick="toggleStarFilter(${STATE.starFilter})">Quitar filtro</button>` : ''}
+    </div>`;
   return `
     <div class="toolbar">
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Clientes</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Cuenta corriente y estado de cada cliente</p></div>
@@ -1291,11 +1306,12 @@ function renderClientesList(){
         <button class="btn btn-danger btn-sm" onclick="deleteAllClients()"><i class="fa-solid fa-trash"></i>Borrar todos los clientes</button>
       </div>
     </div>
+    ${starButtons}
     <div class="card" style="padding:0;overflow:hidden;">
       <table>
-        <thead><tr><th>Cliente</th><th>Teléfono</th><th>Estado</th><th style="text-align:right;">Saldo total</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Teléfono</th><th>Calificación</th><th>Estado</th><th style="text-align:right;">Saldo total</th><th></th></tr></thead>
         <tbody>
-          ${list.length === 0 ? `<tr><td colspan="5" class="empty-row">No se encontraron clientes con ese filtro.</td></tr>` : list.map(c => {
+          ${list.length === 0 ? `<tr><td colspan="6" class="empty-row">No se encontraron clientes con ese filtro.</td></tr>` : list.map(c => {
             let estadoPill;
             if(c.moroso) estadoPill = `<span class="pill" style="background:#FDEDEC;color:#A32D2D;border-color:#F7C1C1;">Moroso</span>`;
             else if(c.tieneOperaciones && c.saldo <= 0.01) estadoPill = `<span class="pill" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">Finalizado</span>`;
@@ -1304,6 +1320,7 @@ function renderClientesList(){
             <tr class="clickable" onclick="openClient('${c.id}')">
               <td style="font-weight:600;">${esc(c.name)}</td>
               <td style="color:var(--paper-dim);">${esc(c.phone) || '-'}</td>
+              <td style="white-space:nowrap;">${c.rating.stars === null ? `<span style="font-size:11.5px;color:var(--paper-dim);">Sin historial</span>` : Array.from({length:5},(_, i) => `<i class="fa-${i < c.rating.stars ? 'solid' : 'regular'} fa-star" style="color:${i < c.rating.stars ? '#F5A623' : '#D2CDBF'};font-size:11px;"></i>`).join('')}</td>
               <td>${estadoPill}</td>
               <td style="text-align:right;font-weight:600;">${formatMoney(c.saldo)}</td>
               <td style="text-align:right;white-space:nowrap;">
