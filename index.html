@@ -301,7 +301,7 @@ function itemEstado(item){
 }
 function itemSaldoPendiente(item){
   if(item.refinanciadoEnId) return 0;
-  return item.cuotas.reduce((acc, c) => acc + (c.amount - c.paidAmount) + calcRecargoMora(c, item), 0);
+  return item.cuotas.reduce((acc, c) => acc + Math.max(0, c.amount - c.paidAmount) + calcRecargoMora(c, item), 0);
 }
 function calcRecargoMora(cuota, item){
   if(item.refinanciadoEnId) return 0;
