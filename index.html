@@ -288,7 +288,7 @@ function cuotaEstado(cuota){
   if(cuota.paid) return 'pagada';
   const t = todayStr();
   if(cuota.dueDate < t) return 'vencida';
-  if(daysBetween(cuota.dueDate, t) <= 7) return 'proxima';
+  if(daysBetween(cuota.dueDate, t) <= 3) return 'proxima';
   return 'pendiente';
 }
 function itemEstado(item){
@@ -449,6 +449,72 @@ function configureBusinessName(){
   persist('config', { businessName: STATE.businessName });
   render();
   showToast('Firma actualizada');
+}
+
+/* ================= BACKUP COMPLETO Y RESTAURACIÓN ================= */
+function downloadFullBackup(){
+  const backup = {
+    tipo: 'backup-libro-de-cuentas',
+    version: 1,
+    fecha: new Date().toISOString(),
+    clients: STATE.clients,
+    loans: STATE.loans,
+    sales: STATE.sales,
+    config: { businessName: STATE.businessName || '' }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `backup-libro-de-cuentas-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Backup descargado');
+}
+function openRestoreModal(){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box" style="max-width:420px;">
+        <div class="modal-head"><h3><i class="fa-solid fa-clock-rotate-left" style="color:var(--brass);margin-right:8px;"></i>Restaurar backup</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13px;color:var(--paper-dim);margin-bottom:16px;line-height:1.6;">
+          Elegí el archivo <b style="color:var(--paper);">.json</b> que descargaste con "Backup completo". Esto va a <b style="color:#A32D2D;">reemplazar todos los datos actuales</b> (clientes, préstamos, ventas) por los que están en ese archivo. No se puede deshacer.
+        </div>
+        <input type="file" id="restore-file-input" accept="application/json,.json" style="margin-bottom:16px;">
+        <div id="restore-error" class="login-error" style="display:none;"></div>
+        <button class="btn btn-solid" style="width:100%;" onclick="handleRestoreFile()">Restaurar datos desde este archivo</button>
+      </div>
+    </div>`;
+}
+function handleRestoreFile(){
+  const input = document.getElementById('restore-file-input');
+  const errorBox = document.getElementById('restore-error');
+  errorBox.style.display = 'none';
+  const file = input.files[0];
+  if(!file){ errorBox.textContent = 'Elegí un archivo primero.'; errorBox.style.display = 'block'; return; }
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    let data;
+    try{ data = JSON.parse(e.target.result); }
+    catch(err){ errorBox.textContent = 'Este archivo no es un backup válido (no se pudo leer como JSON).'; errorBox.style.display = 'block'; return; }
+    if(!data || !Array.isArray(data.clients) || !Array.isArray(data.loans) || !Array.isArray(data.sales)){
+      errorBox.textContent = 'Este archivo no tiene el formato esperado de un backup de Libro de Cuentas.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    const resumen = `${data.clients.length} clientes, ${data.loans.length} préstamos y ${data.sales.length} ventas`;
+    if(!confirm(`Vas a reemplazar TODOS los datos actuales por: ${resumen} (backup del ${data.fecha ? formatDate(data.fecha.slice(0,10)) : 'archivo'}). Esta acción no se puede deshacer. ¿Confirmás?`)) return;
+    STATE.clients = data.clients;
+    STATE.loans = data.loans;
+    STATE.sales = data.sales;
+    STATE.businessName = (data.config && data.config.businessName) || '';
+    await persist('clients', STATE.clients);
+    await persist('loans', STATE.loans);
+    await persist('sales', STATE.sales);
+    await persist('config', { businessName: STATE.businessName });
+    closeModal(); render();
+    showToast('Datos restaurados correctamente');
+  };
+  reader.readAsText(file);
 }
 
 /* ================= COTIZACIÓN DEL DÓLAR ================= */
@@ -766,6 +832,12 @@ function renderSidebar(){
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);cursor:pointer;" onclick="configureBusinessName()">
         <i class="fa-solid fa-signature" style="margin-right:6px;"></i>${STATE.businessName ? `Firma: ${esc(STATE.businessName)}` : 'Configurar firma de WhatsApp'}
       </div>
+      <div style="margin-top:8px;cursor:pointer;" onclick="downloadFullBackup()">
+        <i class="fa-solid fa-download" style="margin-right:6px;"></i>Backup completo
+      </div>
+      <div style="margin-top:6px;cursor:pointer;" onclick="openRestoreModal()">
+        <i class="fa-solid fa-clock-rotate-left" style="margin-right:6px;"></i>Restaurar backup
+      </div>
       <div class="sidebar-user">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(STATE.userEmail)}</span>
         <span class="logout-btn" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket"></i></span>
@@ -864,7 +936,22 @@ function renderDashboard(){
     </div>
 
     ${renderDolarBanner()}
+    ${renderBackupBanner()}
   `;
+}
+function renderBackupBanner(){
+  return `
+    <div class="card" style="margin-top:14px;display:flex;align-items:flex-start;gap:14px;background:var(--ink-3);border-style:dashed;">
+      <div style="width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <i class="fa-solid fa-shield-halved" style="color:var(--brass-bright);"></i>
+      </div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:14px;font-weight:700;margin-bottom:4px;">Recomendación de uso: hacé backups seguido</div>
+        <div style="font-size:13px;color:var(--paper-dim);line-height:1.5;">
+          Descargá un <b style="color:var(--paper);">Backup completo</b> (abajo en el menú lateral) una vez por semana, o después de cargar algo importante, y guardalo en algún lado fuera del sistema — tu Google Drive, un mail a vos mismo, un pendrive, lo que te resulte más cómodo.
+        </div>
+      </div>
+    </div>`;
 }
 function renderDolarBanner(){
   const d = STATE.dolar;
@@ -1057,7 +1144,7 @@ function renderNotificaciones(){
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Notificaciones</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Avisos de cuotas vencidas y próximas a vencer, listos para mandarle un recordatorio al cliente</p></div>
       ${due.length > 0 ? `<button class="btn btn-sm" onclick="clearAllNotifications()"><i class="fa-solid fa-broom"></i>Limpiar notificaciones</button>` : ''}
     </div>
-    ${due.length === 0 ? `<div class="card empty-row">No hay avisos por ahora. Cuando una cuota esté por vencer (7 días o menos) o vencida, va a aparecer acá.</div>` : due.map(renderNotifCard).join('')}
+    ${due.length === 0 ? `<div class="card empty-row">No hay avisos por ahora. Cuando una cuota esté por vencer (3 días o menos) o vencida, va a aparecer acá.</div>` : due.map(renderNotifCard).join('')}
   `;
 }
 function clearAllNotifications(){
@@ -1338,7 +1425,7 @@ function openLoanFormModal(periodicidad){
   const numCuotasField = periodicidad === 'mensual'
     ? `<select name="numCuotas" required onchange="updateLoanPreview()">${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}</select>`
     : `<input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()">`;
-  const opcionesInteres = periodicidad === 'mensual' ? [1, 20, 30, 35, 40, 100] : [10, 15, 20, 25, 30, 35, 50, 70];
+  const opcionesInteres = periodicidad === 'diario' ? [5, 10, 15, 20, 25, 30] : [1, 20, 30, 35, 40, 100];
   const tituloPeriodo = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[periodicidad];
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
@@ -1368,7 +1455,12 @@ function openLoanFormModal(periodicidad){
               ${numCuotasField}
             </div>
           </div>
-          ${periodicidad === 'mensual' ? `<div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>` : ''}
+          ${periodicidad === 'mensual' ? `
+          <div class="field">
+            <label>Interés por mora</label>
+            <div style="padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius);background:var(--ink-3);font-size:13.5px;">1,5% mensual sobre la cuota vencida <span style="color:var(--paper-dim);">(fijo)</span></div>
+            <input type="hidden" name="moraPercent" value="1.5">
+          </div>` : ''}
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" placeholder="Ej: Moto Honda Wave 110, patente ABC123"></div>
           <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
             <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Monto a devolver:</span><span id="loan-total" style="font-weight:700;">${formatMoney(0)}</span></div>
@@ -1423,13 +1515,15 @@ function openSaleModal(){
           <div class="row-2">
             <div class="field"><label>Fecha de venta</label><input name="date" type="date" value="${todayStr()}" required></div>
             <div class="field"><label>Forma de pago</label>
-              <select name="paymentMethod"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mixto</option></select>
+              <select name="paymentMethod"><option>Contado</option><option>Transferencia</option><option>Tarjeta</option><option>Crédito personal</option><option>Mixto</option></select>
             </div>
           </div>
           <div class="row-3">
             <div class="field"><label>Precio total</label><input name="price" type="number" min="0" step="0.01" required oninput="updateSalePreview()"></div>
             <div class="field"><label>Anticipo</label><input name="anticipo" type="number" min="0" step="0.01" value="0" oninput="updateSalePreview()"></div>
-            <div class="field"><label>Cant. cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateSalePreview()"></div>
+            <div class="field"><label>Cant. cuotas</label>
+              <select name="numCuotas" required onchange="updateSalePreview()">${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}</select>
+            </div>
           </div>
           <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
           <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
@@ -1537,7 +1631,7 @@ function openEditLoanModal(id){
           </div>
           <div class="row-2">
             <div class="field"><label>Periodicidad</label>
-              <select name="periodicidad">
+              <select name="periodicidad" onchange="toggleEditMora(this.value)">
                 <option value="diario" ${periodicidadActual === 'diario' ? 'selected' : ''}>Diario</option>
                 <option value="semanal" ${periodicidadActual === 'semanal' ? 'selected' : ''}>Semanal</option>
                 <option value="mensual" ${periodicidadActual === 'mensual' ? 'selected' : ''}>Mensual</option>
@@ -1547,13 +1641,30 @@ function openEditLoanModal(id){
           </div>
           <div class="row-2">
             <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" value="${item.percent}" required></div>
-            <div class="field"><label>Interés por mora (% por período, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+            <div class="field">
+              <label>Interés por mora (% por período)</label>
+              <input id="edit-mora-input" name="moraPercent" type="number" min="0" step="0.01" value="${periodicidadActual === 'mensual' ? '1.5' : (item.moraPercent || 0)}" ${periodicidadActual === 'mensual' ? 'disabled' : ''}>
+              <span id="edit-mora-note" style="font-size:11px;color:var(--paper-dim);display:${periodicidadActual === 'mensual' ? 'block' : 'none'};margin-top:3px;">Fijo en 1,5% para préstamos mensuales.</span>
+            </div>
           </div>
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" value="${esc(item.garantia || '')}" placeholder="Ej: Moto Honda Wave 110"></div>
           <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
         </form>
       </div>
     </div>`;
+}
+function toggleEditMora(periodicidad){
+  const input = document.getElementById('edit-mora-input');
+  const note = document.getElementById('edit-mora-note');
+  if(!input) return;
+  if(periodicidad === 'mensual'){
+    input.value = '1.5';
+    input.disabled = true;
+    if(note) note.style.display = 'block';
+  } else {
+    input.disabled = false;
+    if(note) note.style.display = 'none';
+  }
 }
 function submitEditLoanForm(e, id){
   e.preventDefault();
@@ -1602,7 +1713,8 @@ function openEditSaleModal(id){
   const client = STATE.clients.find(c => c.id === item.clientId) || {};
   const numCuotas = item.cuotas.length || 1;
   const tienePagos = item.cuotas.some(c => c.paidAmount > 0);
-  const metodos = ['Efectivo', 'Transferencia', 'Tarjeta', 'Mixto'];
+  const metodosBase = ['Contado', 'Transferencia', 'Tarjeta', 'Crédito personal', 'Mixto'];
+  const metodos = metodosBase.includes(item.paymentMethod) ? metodosBase : [item.paymentMethod, ...metodosBase];
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
       <div class="modal-box">
@@ -1618,13 +1730,15 @@ function openEditSaleModal(id){
           <div class="row-2">
             <div class="field"><label>Fecha de venta</label><input name="date" type="date" value="${item.date}" required></div>
             <div class="field"><label>Forma de pago</label>
-              <select name="paymentMethod">${metodos.map(m => `<option ${item.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+              <select name="paymentMethod">${metodos.map(m => `<option ${item.paymentMethod === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>
             </div>
           </div>
           <div class="row-3">
             <div class="field"><label>Precio total</label><input name="price" type="number" min="0" step="0.01" value="${item.price}" required></div>
             <div class="field"><label>Anticipo</label><input name="anticipo" type="number" min="0" step="0.01" value="${item.anticipo}"></div>
-            <div class="field"><label>Cant. cuotas</label><input name="numCuotas" type="number" min="1" step="1" value="${numCuotas}" required></div>
+            <div class="field"><label>Cant. cuotas</label>
+              <select name="numCuotas" required>${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === numCuotas ? 'selected' : ''}>${n}</option>`).join('')}</select>
+            </div>
           </div>
           <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
           <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
