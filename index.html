@@ -10,7 +10,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
@@ -200,7 +200,7 @@
 <div class="app-shell" id="app-shell" style="display:none;">
   <div class="sidebar" id="sidebar"></div>
   <div class="main" id="main">
-    <div class="search-wrap">
+    <div class="search-wrap" id="search-wrap">
       <i class="fa-solid fa-magnifying-glass"></i>
       <input id="search-input" placeholder="Buscar cliente por nombre o DNI…" oninput="onSearch(this.value)">
     </div>
@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null };
+let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', historialSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, metricasPrestamosMeses: 6, metricasArticulosMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0 };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -437,18 +437,64 @@ async function loadAll(){
   const [c, l, s, cfg] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales'), safeGet('config')]);
   STATE.clients = c || []; STATE.loans = l || []; STATE.sales = s || [];
   STATE.businessName = (cfg && cfg.businessName) || '';
+  STATE.capitalTotal = (cfg && Number(cfg.capitalTotal)) || 0;
+  STATE.capitalTotalArticulos = (cfg && Number(cfg.capitalTotalArticulos)) || 0;
   STATE.loading = false;
   render();
   fetchDolarOficial();
+}
+function persistConfig(){
+  return persist('config', {
+    businessName: STATE.businessName,
+    capitalTotal: STATE.capitalTotal,
+    capitalTotalArticulos: STATE.capitalTotalArticulos
+  });
 }
 function configureBusinessName(){
   const actual = STATE.businessName || '';
   const nuevo = prompt('¿Con qué nombre querés firmar los mensajes de WhatsApp (recordatorios y recibos)?\nPor ejemplo: "Créditos Fernández" o tu propio nombre.', actual);
   if(nuevo === null) return;
   STATE.businessName = nuevo.trim();
-  persist('config', { businessName: STATE.businessName });
+  persistConfig();
   render();
   showToast('Firma actualizada');
+}
+function parseMoneyInput(str){
+  let s = String(str).trim();
+  // Formato argentino: punto = separador de miles, coma = decimal
+  if(s.includes(',')){
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else {
+    // Sin coma: si tiene puntos, asumimos que son separadores de miles (ej: 20.000.000)
+    const partes = s.split('.');
+    if(partes.length > 2 || (partes.length === 2 && partes[1].length === 3)){
+      s = s.replace(/\./g, '');
+    }
+  }
+  s = s.replace(/[^0-9.]/g, '');
+  return Number(s);
+}
+function configureCapitalTotal(){
+  const actual = STATE.capitalTotal || 0;
+  const nuevo = prompt('¿Cuál es el capital total que destinás a préstamos (esté prestado o no)?\nEste número lo usamos para calcular el "Capital disponible" en Métricas de Préstamos.', actual);
+  if(nuevo === null) return;
+  const valor = parseMoneyInput(nuevo);
+  if(isNaN(valor) || valor < 0){ showToast('Ingresá un número válido'); return; }
+  STATE.capitalTotal = valor;
+  persistConfig();
+  render();
+  showToast('Capital total actualizado');
+}
+function configureCapitalTotalArticulos(){
+  const actual = STATE.capitalTotalArticulos || 0;
+  const nuevo = prompt('¿Cuál es el capital total que destinás a financiar artículos (esté usado o no)?\nEste número lo usamos para calcular el "Capital disponible" en Métricas de Artículos.', actual);
+  if(nuevo === null) return;
+  const valor = parseMoneyInput(nuevo);
+  if(isNaN(valor) || valor < 0){ showToast('Ingresá un número válido'); return; }
+  STATE.capitalTotalArticulos = valor;
+  persistConfig();
+  render();
+  showToast('Capital total actualizado');
 }
 
 /* ================= BACKUP COMPLETO Y RESTAURACIÓN ================= */
@@ -460,7 +506,7 @@ function downloadFullBackup(){
     clients: STATE.clients,
     loans: STATE.loans,
     sales: STATE.sales,
-    config: { businessName: STATE.businessName || '' }
+    config: { businessName: STATE.businessName || '', capitalTotal: STATE.capitalTotal || 0, capitalTotalArticulos: STATE.capitalTotalArticulos || 0 }
   };
   const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
@@ -507,10 +553,12 @@ function handleRestoreFile(){
     STATE.loans = data.loans;
     STATE.sales = data.sales;
     STATE.businessName = (data.config && data.config.businessName) || '';
+    STATE.capitalTotal = (data.config && Number(data.config.capitalTotal)) || 0;
+    STATE.capitalTotalArticulos = (data.config && Number(data.config.capitalTotalArticulos)) || 0;
     await persist('clients', STATE.clients);
     await persist('loans', STATE.loans);
     await persist('sales', STATE.sales);
-    await persist('config', { businessName: STATE.businessName });
+    await persistConfig();
     closeModal(); render();
     showToast('Datos restaurados correctamente');
   };
@@ -719,6 +767,16 @@ async function refinanceItem(oldType, oldId, data){
 
 function goTab(tab){ STATE.tab = tab; STATE.selectedClientId = null; render(); }
 function onSearch(v){ STATE.search = v; STATE.tab = 'clientes'; STATE.selectedClientId = null; render(true); }
+function onHistorialSearch(v){
+  STATE.historialSearch = v;
+  render(true);
+  const el = document.getElementById('historial-search-input');
+  if(el){ el.focus(); const p = el.value.length; el.setSelectionRange(p, p); }
+}
+function clearHistorialSearch(){
+  STATE.historialSearch = '';
+  render(true);
+}
 function onClientFilterChange(v){ STATE.clientFilter = v; render(true); }
 function toggleExpand(id){ STATE.expanded = STATE.expanded === id ? null : id; render(); }
 function openClient(id){ STATE.selectedClientId = id; render(); }
@@ -757,6 +815,48 @@ function getStats(){
     moraAcumulada
   };
 }
+function getMetricas(){
+  const loansActivos = STATE.loans.filter(l => ['aldia', 'proximo', 'vencido'].includes(itemEstado(l)));
+  const capitalPrestado = loansActivos.reduce((acc, l) => acc + l.amount, 0);
+  const capitalDisponible = (STATE.capitalTotal || 0) - capitalPrestado;
+  const montoACobrar = STATE.loans.reduce((acc, l) => acc + itemSaldoPendiente(l), 0);
+
+  const now = new Date();
+  const mesActual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  let montoCobradoMes = 0;
+  let interesesCobradosMes = 0;
+  let interesesCobradosTotal = 0;
+  STATE.loans.forEach(l => {
+    const ratioInteres = l.totalToReturn > 0 ? Math.max(0, (l.totalToReturn - l.amount) / l.totalToReturn) : 0;
+    l.cuotas.forEach(c => {
+      if(c.paidAmount > 0){
+        interesesCobradosTotal += c.paidAmount * ratioInteres;
+        if(c.paidDate && c.paidDate.slice(0, 7) === mesActual){
+          montoCobradoMes += c.paidAmount;
+          interesesCobradosMes += c.paidAmount * ratioInteres;
+        }
+      }
+    });
+  });
+  const retornoCapital = (STATE.capitalTotal || 0) + interesesCobradosTotal;
+
+  const clientesConPrestamo = new Set(STATE.loans.map(l => l.clientId));
+  const clientesVencidosSet = new Set(loansActivos.filter(l => itemEstado(l) === 'vencido').map(l => l.clientId));
+
+  return {
+    capitalTotal: STATE.capitalTotal || 0,
+    capitalPrestado,
+    capitalDisponible,
+    montoACobrar,
+    montoCobradoMes,
+    interesesCobradosMes,
+    interesesCobradosTotal,
+    retornoCapital,
+    numClientes: clientesConPrestamo.size,
+    prestamosActivos: loansActivos.length,
+    clientesVencidos: clientesVencidosSet.size
+  };
+}
 function getMonthlyStats(nMonths){
   const now = new Date();
   const months = [];
@@ -787,6 +887,31 @@ function getMonthlyStats(nMonths){
   STATE.sales.forEach(s => processItem(s));
 
   return { labels: months.map(m => m.label), prestado, cobrado, mora };
+}
+function getMonthlyStatsScoped(nMonths, items, montoFn){
+  const now = new Date();
+  const months = [];
+  for(let i = nMonths - 1; i >= 0; i--){
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }) });
+  }
+  const keyIndex = {}; months.forEach((m, i) => keyIndex[m.key] = i);
+  const generado = months.map(() => 0);
+  const cobrado = months.map(() => 0);
+  const mora = months.map(() => 0);
+  items.forEach(it => {
+    const k = it.date.slice(0, 7);
+    if(keyIndex[k] !== undefined) generado[keyIndex[k]] += montoFn(it);
+    it.cuotas.forEach(c => {
+      if(c.paidDate){
+        const pk = c.paidDate.slice(0, 7);
+        if(keyIndex[pk] !== undefined) cobrado[keyIndex[pk]] += c.paidAmount;
+      }
+      const mk = c.dueDate.slice(0, 7);
+      if(keyIndex[mk] !== undefined) mora[keyIndex[mk]] += calcRecargoMora(c, it);
+    });
+  });
+  return { labels: months.map(m => m.label), generado, cobrado, mora };
 }
 function getFilteredClients(){
   const q = STATE.search.trim().toLowerCase();
@@ -825,10 +950,12 @@ function renderSidebar(){
       <div class="nav-group-label">Principal</div>
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
       ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
+      ${item('metricas', 'fa-chart-pie', 'Métricas de Préstamos')}
+      ${item('metricasArticulos', 'fa-chart-pie', 'Métricas de Artículos')}
       ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
-      ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
       ${item('ventas', 'fa-cart-shopping', 'Artículos')}
       ${item('clientes', 'fa-users', 'Clientes')}
+      ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
       ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
       ${item('evolucion', 'fa-chart-line', 'Evolución')}
     </div>
@@ -915,7 +1042,194 @@ function renderItemCard(item, type){
     </div>`;
 }
 
+function getMetricasArticulos(){
+  const salesActivas = STATE.sales.filter(s => ['aldia', 'proximo', 'vencido'].includes(itemEstado(s)));
+  const capitalFinanciado = salesActivas.reduce((acc, s) => acc + Math.max(s.price - s.anticipo, 0), 0);
+  const capitalDisponible = (STATE.capitalTotalArticulos || 0) - capitalFinanciado;
+  const montoACobrar = STATE.sales.reduce((acc, s) => acc + itemSaldoPendiente(s), 0);
+
+  const now = new Date();
+  const mesActual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  let montoCobradoMes = 0;
+  STATE.sales.forEach(s => s.cuotas.forEach(c => {
+    if(c.paidDate && c.paidDate.slice(0, 7) === mesActual) montoCobradoMes += c.paidAmount;
+  }));
+
+  const clientesConVenta = new Set(STATE.sales.map(s => s.clientId));
+  const clientesVencidosSet = new Set(salesActivas.filter(s => itemEstado(s) === 'vencido').map(s => s.clientId));
+
+  return {
+    capitalTotal: STATE.capitalTotalArticulos || 0,
+    capitalFinanciado,
+    capitalDisponible,
+    montoACobrar,
+    montoCobradoMes,
+    numClientes: clientesConVenta.size,
+    ventasActivas: salesActivas.length,
+    clientesVencidos: clientesVencidosSet.size
+  };
+}
+
 /* ================= RENDER: VISTAS ================= */
+function renderMetricas(){
+  const m = getMetricas();
+  return `
+    <div class="main-head">
+      <div><h1>Métricas de Préstamos</h1><p class="sub">Foto del capital de tu negocio, solo préstamos</p></div>
+      <button class="btn btn-sm" onclick="configureCapitalTotal()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotal ? 'Editar capital total' : 'Cargar capital total'}</button>
+    </div>
+    ${!STATE.capitalTotal ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste tu capital total. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);">
+      <div class="kpi"><div class="lbl">Capital disponible</div><div class="val ${m.capitalDisponible < 0 ? 'brick' : 'sage'}">${formatMoney(m.capitalDisponible)}</div></div>
+      <div class="kpi"><div class="lbl">Capital prestado</div><div class="val">${formatMoney(m.capitalPrestado)}</div></div>
+      <div class="kpi"><div class="lbl">Monto a cobrar</div><div class="val">${formatMoney(m.montoACobrar)}</div></div>
+      <div class="kpi"><div class="lbl">Monto cobrado (este mes)</div><div class="val sage">${formatMoney(m.montoCobradoMes)}</div></div>
+      <div class="kpi"><div class="lbl">Intereses cobrados (este mes)</div><div class="val sage">${formatMoney(m.interesesCobradosMes)}</div></div>
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-top:14px;">
+      <div class="kpi"><div class="lbl">N° de clientes</div><div class="val">${m.numClientes}</div></div>
+      <div class="kpi"><div class="lbl">Préstamos activos</div><div class="val">${m.prestamosActivos}</div></div>
+      <div class="kpi"><div class="lbl">Clientes con atrasos</div><div class="val brick">${m.clientesVencidos}</div></div>
+      <div class="kpi"><div class="lbl">Retorno de capital</div><div class="val sage">${formatMoney(m.retornoCapital)}</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--paper-dim);margin-top:16px;line-height:1.6;">
+      <ul style="margin:0;padding-left:18px;">
+        <li style="margin-bottom:4px;"><b>Capital disponible</b> = Capital total que cargaste − Capital prestado en préstamos activos hoy.</li>
+        <li style="margin-bottom:4px;"><b>Capital prestado</b> y <b>Préstamos activos</b> no cuentan los finalizados ni los refinanciados.</li>
+        <li style="margin-bottom:4px;"><b>Intereses cobrados</b> separa, de cada pago, la parte que es ganancia (no capital), estimada de forma proporcional según el % de interés de cada préstamo.</li>
+        <li style="margin-bottom:4px;"><b>Retorno de capital</b> = Capital total que cargaste + Intereses cobrados históricamente (no del mes, de siempre) — muestra cómo creció tu capital real, sin contar dos veces el capital que ya volvió.</li>
+        <li style="margin-bottom:4px;"><b>N° de clientes</b> son los clientes distintos que tienen o tuvieron al menos un préstamo.</li>
+        <li><b>Clientes con atrasos</b> cuenta personas, no cuotas — si alguien tiene 3 cuotas vencidas del mismo préstamo, cuenta una sola vez.</li>
+      </ul>
+    </div>
+
+    <div class="toolbar" style="margin-top:26px;">
+      <div class="eyebrow">Evolución mensual — solo préstamos</div>
+      <select onchange="onMetricasMesesChange('prestamos', this.value)" style="width:auto;min-width:160px;">
+        <option value="3" ${STATE.metricasPrestamosMeses === 3 ? 'selected' : ''}>Últimos 3 meses</option>
+        <option value="6" ${STATE.metricasPrestamosMeses === 6 ? 'selected' : ''}>Últimos 6 meses</option>
+        <option value="12" ${STATE.metricasPrestamosMeses === 12 ? 'selected' : ''}>Últimos 12 meses</option>
+      </select>
+    </div>
+    <div class="card" style="padding:20px;">
+      <canvas id="metricas-prestamos-chart" height="90"></canvas>
+    </div>
+    <div class="card" style="background:var(--ink-3);margin-top:10px;padding:12px 16px;display:flex;gap:10px;align-items:flex-start;">
+      <i class="fa-solid fa-circle-info" style="color:var(--brass-bright);margin-top:2px;"></i>
+      <div style="font-size:12.5px;color:var(--paper);line-height:1.6;">
+        Cada barra usa una fecha distinta: <b>Prestado</b> = fecha del préstamo. <b>Cobrado</b> = fecha en que se registró el pago (puede ser un mes distinto al del préstamo). <b>Mora</b> = recargo acumulado hoy en cuotas vencidas, agrupado por el mes en que vencieron. No representan el mismo préstamo mes a mes, sino el movimiento de plata de cada mes.
+      </div>
+    </div>
+  `;
+}
+function renderMetricasArticulos(){
+  const m = getMetricasArticulos();
+  return `
+    <div class="main-head">
+      <div><h1>Métricas de Artículos</h1><p class="sub">Foto del capital de tu negocio, solo artículos financiados</p></div>
+      <button class="btn btn-sm" onclick="configureCapitalTotalArticulos()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotalArticulos ? 'Editar capital total' : 'Cargar capital total'}</button>
+    </div>
+    ${!STATE.capitalTotalArticulos ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste el capital que destinás a artículos. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+      <div class="kpi"><div class="lbl">Capital disponible</div><div class="val ${m.capitalDisponible < 0 ? 'brick' : 'sage'}">${formatMoney(m.capitalDisponible)}</div></div>
+      <div class="kpi"><div class="lbl">Capital financiado</div><div class="val">${formatMoney(m.capitalFinanciado)}</div></div>
+      <div class="kpi"><div class="lbl">Monto a cobrar</div><div class="val">${formatMoney(m.montoACobrar)}</div></div>
+      <div class="kpi"><div class="lbl">Monto cobrado (este mes)</div><div class="val sage">${formatMoney(m.montoCobradoMes)}</div></div>
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-top:14px;">
+      <div class="kpi"><div class="lbl">N° de clientes</div><div class="val">${m.numClientes}</div></div>
+      <div class="kpi"><div class="lbl">Ventas activas</div><div class="val">${m.ventasActivas}</div></div>
+      <div class="kpi"><div class="lbl">Clientes con atrasos</div><div class="val brick">${m.clientesVencidos}</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--paper-dim);margin-top:16px;line-height:1.6;">
+      <ul style="margin:0;padding-left:18px;">
+        <li style="margin-bottom:4px;"><b>Capital disponible</b> = Capital total que destinás a artículos − Capital financiado en ventas activas hoy (este capital es aparte del de Préstamos).</li>
+        <li style="margin-bottom:4px;"><b>Capital financiado</b> y <b>Ventas activas</b> no cuentan las finalizadas ni las refinanciadas.</li>
+        <li style="margin-bottom:4px;"><b>N° de clientes</b> son los clientes distintos que tienen o tuvieron al menos un artículo financiado.</li>
+        <li><b>Clientes con atrasos</b> cuenta personas, no cuotas.</li>
+      </ul>
+    </div>
+
+    <div class="toolbar" style="margin-top:26px;">
+      <div class="eyebrow">Evolución mensual — solo artículos</div>
+      <select onchange="onMetricasMesesChange('articulos', this.value)" style="width:auto;min-width:160px;">
+        <option value="3" ${STATE.metricasArticulosMeses === 3 ? 'selected' : ''}>Últimos 3 meses</option>
+        <option value="6" ${STATE.metricasArticulosMeses === 6 ? 'selected' : ''}>Últimos 6 meses</option>
+        <option value="12" ${STATE.metricasArticulosMeses === 12 ? 'selected' : ''}>Últimos 12 meses</option>
+      </select>
+    </div>
+    <div class="card" style="padding:20px;">
+      <canvas id="metricas-articulos-chart" height="90"></canvas>
+    </div>
+    <div class="card" style="background:var(--ink-3);margin-top:10px;padding:12px 16px;display:flex;gap:10px;align-items:flex-start;">
+      <i class="fa-solid fa-circle-info" style="color:var(--brass-bright);margin-top:2px;"></i>
+      <div style="font-size:12.5px;color:var(--paper);line-height:1.6;">
+        Cada barra usa una fecha distinta: <b>Financiado</b> = fecha de la venta. <b>Cobrado</b> = fecha en que se registró el pago (puede ser un mes distinto al de la venta). <b>Mora</b> = recargo acumulado hoy en cuotas vencidas, agrupado por el mes en que vencieron. No representan la misma venta mes a mes, sino el movimiento de plata de cada mes.
+      </div>
+    </div>
+  `;
+}
+function onMetricasMesesChange(scope, v){
+  if(scope === 'prestamos') STATE.metricasPrestamosMeses = Number(v);
+  else STATE.metricasArticulosMeses = Number(v);
+  render();
+}
+function initMetricasPrestamosChart(){
+  const canvas = document.getElementById('metricas-prestamos-chart');
+  if(!canvas || typeof Chart === 'undefined') return;
+  const stats = getMonthlyStatsScoped(STATE.metricasPrestamosMeses, STATE.loans, l => l.amount);
+  if(window._metricasPrestamosChart) window._metricasPrestamosChart.destroy();
+  window._metricasPrestamosChart = new Chart(canvas.getContext('2d'), {
+    data: {
+      labels: stats.labels,
+      datasets: [
+        { type: 'bar', label: 'Prestado (según fecha del préstamo)', data: stats.generado, backgroundColor: '#5B4FE0', borderRadius: 2, order: 2 },
+        { type: 'bar', label: 'Cobrado (según fecha del pago)', data: stats.cobrado, backgroundColor: '#3F7A46', borderRadius: 2, order: 2 },
+        { type: 'line', label: 'Mora (según fecha de vencimiento)', data: stats.mora, borderColor: '#A94E30', backgroundColor: '#A94E30', tension: 0.3, order: 1, pointRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: 'Lato' }, color: '#1C2B36' } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { family: 'Lato' }, color: '#69747C' } },
+        y: { ticks: { font: { family: 'Lato' }, color: '#69747C', callback: (v) => '$' + v.toLocaleString('es-AR') }, grid: { color: '#E4E1D8' } }
+      }
+    }
+  });
+}
+function initMetricasArticulosChart(){
+  const canvas = document.getElementById('metricas-articulos-chart');
+  if(!canvas || typeof Chart === 'undefined') return;
+  const stats = getMonthlyStatsScoped(STATE.metricasArticulosMeses, STATE.sales, s => Math.max(s.price - s.anticipo, 0));
+  if(window._metricasArticulosChart) window._metricasArticulosChart.destroy();
+  window._metricasArticulosChart = new Chart(canvas.getContext('2d'), {
+    data: {
+      labels: stats.labels,
+      datasets: [
+        { type: 'bar', label: 'Financiado (según fecha de la venta)', data: stats.generado, backgroundColor: '#5B4FE0', borderRadius: 2, order: 2 },
+        { type: 'bar', label: 'Cobrado (según fecha del pago)', data: stats.cobrado, backgroundColor: '#3F7A46', borderRadius: 2, order: 2 },
+        { type: 'line', label: 'Mora (según fecha de vencimiento)', data: stats.mora, borderColor: '#A94E30', backgroundColor: '#A94E30', tension: 0.3, order: 1, pointRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: 'Lato' }, color: '#1C2B36' } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { family: 'Lato' }, color: '#69747C' } },
+        y: { ticks: { font: { family: 'Lato' }, color: '#69747C', callback: (v) => '$' + v.toLocaleString('es-AR') }, grid: { color: '#E4E1D8' } }
+      }
+    }
+  });
+}
 function renderDashboard(){
   const stats = getStats();
   return `
@@ -1107,8 +1421,11 @@ function renderEvolucion(){
     <div class="card" style="padding:20px;">
       <canvas id="evolucion-chart" height="100"></canvas>
     </div>
-    <div style="font-size:12px;color:var(--paper-dim);margin-top:10px;">
-      "Prestado" toma la fecha en que diste cada préstamo. "Cobrado" toma la fecha en que se registró cada pago (incluye préstamos y ventas). "Mora" es el recargo acumulado hoy en cuotas vencidas, agrupado por el mes en que vencieron.
+    <div class="card" style="background:var(--ink-3);margin-top:10px;padding:12px 16px;display:flex;gap:10px;align-items:flex-start;">
+      <i class="fa-solid fa-circle-info" style="color:var(--brass-bright);margin-top:2px;"></i>
+      <div style="font-size:12.5px;color:var(--paper);line-height:1.6;">
+        Cada barra usa una fecha distinta: <b>Prestado</b> = fecha del préstamo. <b>Cobrado</b> = fecha en que se registró el pago (incluye préstamos y ventas, y puede ser un mes distinto al del préstamo original). <b>Mora</b> = recargo acumulado hoy en cuotas vencidas, agrupado por el mes en que vencieron. No representan el mismo préstamo mes a mes, sino el movimiento de plata de cada mes.
+      </div>
     </div>
   `;
 }
@@ -1122,9 +1439,9 @@ function initEvolucionChart(){
     data: {
       labels: stats.labels,
       datasets: [
-        { type: 'bar', label: 'Prestado', data: stats.prestado, backgroundColor: '#5B4FE0', borderRadius: 2, order: 2 },
-        { type: 'bar', label: 'Cobrado', data: stats.cobrado, backgroundColor: '#3F7A46', borderRadius: 2, order: 2 },
-        { type: 'line', label: 'Mora acumulada', data: stats.mora, borderColor: '#A94E30', backgroundColor: '#A94E30', tension: 0.3, order: 1, pointRadius: 3 }
+        { type: 'bar', label: 'Prestado (según fecha del préstamo)', data: stats.prestado, backgroundColor: '#5B4FE0', borderRadius: 2, order: 2 },
+        { type: 'bar', label: 'Cobrado (según fecha del pago)', data: stats.cobrado, backgroundColor: '#3F7A46', borderRadius: 2, order: 2 },
+        { type: 'line', label: 'Mora (según fecha de vencimiento)', data: stats.mora, borderColor: '#A94E30', backgroundColor: '#A94E30', tension: 0.3, order: 1, pointRadius: 3 }
       ]
     },
     options: {
@@ -1243,15 +1560,30 @@ function renderHistorialPrestamos(){
   const porCliente = {};
   historicos.forEach(l => { (porCliente[l.clientId] = porCliente[l.clientId] || []).push(l); });
 
-  const grupos = Object.keys(porCliente).map(clientId => {
+  const q = (STATE.historialSearch || '').trim().toLowerCase();
+  let grupos = Object.keys(porCliente).map(clientId => {
     const client = STATE.clients.find(c => c.id === clientId) || { name: porCliente[clientId][0].clientName };
     const rating = calcClientRating(clientId);
     return { clientId, client, loans: porCliente[clientId], rating };
-  }).sort((a, b) => (a.rating.stars ?? 99) - (b.rating.stars ?? 99));
+  });
+  const totalClientes = grupos.length;
+  if(q) grupos = grupos.filter(g => g.client.name.toLowerCase().includes(q));
+  grupos = grupos.sort((a, b) => (a.rating.stars ?? 99) - (b.rating.stars ?? 99));
 
   return `
     <div class="main-head"><div><h1>Historial de préstamos</h1><p class="sub">Préstamos finalizados y refinanciados de cada cliente, con su calificación de cumplimiento</p></div></div>
-    ${grupos.length === 0 ? `<div class="card empty-row">Todavía no hay préstamos finalizados ni refinanciados. Van a aparecer acá cuando un cliente termine de pagar uno, o cuando refinancies un préstamo.</div>` : grupos.map(g => `
+    ${totalClientes > 0 ? `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:22px;">
+      <div class="search-wrap" style="max-width:360px;margin-bottom:0;">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input id="historial-search-input" value="${esc(STATE.historialSearch || '')}" placeholder="Buscar por nombre o apellido…" oninput="onHistorialSearch(this.value)">
+      </div>
+      ${q ? `<button class="btn btn-sm" onclick="clearHistorialSearch()"><i class="fa-solid fa-xmark"></i>Limpiar búsqueda</button>` : ''}
+    </div>` : ''}
+    ${totalClientes === 0 ? `<div class="card empty-row">Todavía no hay préstamos finalizados ni refinanciados. Van a aparecer acá cuando un cliente termine de pagar uno, o cuando refinancies un préstamo.</div>` :
+      !q ? `<div class="card empty-row">Buscá un cliente por nombre o apellido arriba para ver su historial.</div>` :
+      grupos.length === 0 ? `<div class="card empty-row">No se encontró ningún cliente con ese nombre.</div>` :
+      grupos.map(g => `
       <div class="card" style="margin-bottom:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;" onclick="STATE.tab='clientes';openClient('${g.clientId}')">
           <div>
@@ -1374,6 +1706,8 @@ function render(skipSearchSync){
   renderSidebar();
   let html = '';
   if(STATE.tab === 'dashboard') html = renderDashboard();
+  else if(STATE.tab === 'metricas') html = renderMetricas();
+  else if(STATE.tab === 'metricasArticulos') html = renderMetricasArticulos();
   else if(STATE.tab === 'notificaciones') html = renderNotificaciones();
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
   else if(STATE.tab === 'historial') html = renderHistorialPrestamos();
@@ -1383,6 +1717,10 @@ function render(skipSearchSync){
   else if(STATE.tab === 'evolucion') html = renderEvolucion();
   document.getElementById('content').innerHTML = html;
   if(STATE.tab === 'evolucion') initEvolucionChart();
+  if(STATE.tab === 'metricas') initMetricasPrestamosChart();
+  if(STATE.tab === 'metricasArticulos') initMetricasArticulosChart();
+  const searchWrap = document.getElementById('search-wrap');
+  searchWrap.style.display = (STATE.tab === 'clientes' && !STATE.selectedClientId) ? 'block' : 'none';
   if(!skipSearchSync){
     const input = document.getElementById('search-input');
     if(input.value !== STATE.search) input.value = STATE.search;
