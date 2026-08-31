@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', historialSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, metricasPrestamosMeses: 6, metricasArticulosMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0 };
+let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', historialSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, metricasPrestamosMeses: 6, metricasArticulosMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, capitalInicial: 0 };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -439,6 +439,11 @@ async function loadAll(){
   STATE.businessName = (cfg && cfg.businessName) || '';
   STATE.capitalTotal = (cfg && Number(cfg.capitalTotal)) || 0;
   STATE.capitalTotalArticulos = (cfg && Number(cfg.capitalTotalArticulos)) || 0;
+  STATE.capitalInicial = (cfg && Number(cfg.capitalInicial)) || 0;
+  if(!STATE.capitalInicial && STATE.capitalTotal){
+    STATE.capitalInicial = STATE.capitalTotal;
+    persistConfig();
+  }
   STATE.loading = false;
   render();
   fetchDolarOficial();
@@ -447,7 +452,8 @@ function persistConfig(){
   return persist('config', {
     businessName: STATE.businessName,
     capitalTotal: STATE.capitalTotal,
-    capitalTotalArticulos: STATE.capitalTotalArticulos
+    capitalTotalArticulos: STATE.capitalTotalArticulos,
+    capitalInicial: STATE.capitalInicial
   });
 }
 function configureBusinessName(){
@@ -485,6 +491,27 @@ function configureCapitalTotal(){
   render();
   showToast('Capital total actualizado');
 }
+function ajustarCapitalTotal(monto){
+  const nuevo = prompt(`¿Cuánto capital querés ${monto === 'sumar' ? 'agregar' : 'retirar'} al total de préstamos?`, '');
+  if(nuevo === null) return;
+  const valor = parseMoneyInput(nuevo);
+  if(isNaN(valor) || valor <= 0){ showToast('Ingresá un número válido'); return; }
+  STATE.capitalTotal = Math.max(0, (STATE.capitalTotal || 0) + (monto === 'sumar' ? valor : -valor));
+  persistConfig();
+  render();
+  showToast(`Capital total ${monto === 'sumar' ? 'aumentado' : 'reducido'} en ${formatMoney(valor)}`);
+}
+function configureCapitalInicial(){
+  const actual = STATE.capitalInicial || STATE.capitalTotal || 0;
+  const nuevo = prompt('¿Cuál fue tu capital inicial (el de arranque, antes de cualquier inyección posterior)?\nEsto solo se usa para calcular "Retorno al capital" — no afecta "Capital disponible".', actual);
+  if(nuevo === null) return;
+  const valor = parseMoneyInput(nuevo);
+  if(isNaN(valor) || valor < 0){ showToast('Ingresá un número válido'); return; }
+  STATE.capitalInicial = valor;
+  persistConfig();
+  render();
+  showToast('Capital inicial corregido');
+}
 function configureCapitalTotalArticulos(){
   const actual = STATE.capitalTotalArticulos || 0;
   const nuevo = prompt('¿Cuál es el capital total que destinás a financiar artículos (esté usado o no)?\nEste número lo usamos para calcular el "Capital disponible" en Métricas de Artículos.', actual);
@@ -496,6 +523,16 @@ function configureCapitalTotalArticulos(){
   render();
   showToast('Capital total actualizado');
 }
+function ajustarCapitalTotalArticulos(monto){
+  const nuevo = prompt(`¿Cuánto capital querés ${monto === 'sumar' ? 'agregar' : 'retirar'} al total de artículos?`, '');
+  if(nuevo === null) return;
+  const valor = parseMoneyInput(nuevo);
+  if(isNaN(valor) || valor <= 0){ showToast('Ingresá un número válido'); return; }
+  STATE.capitalTotalArticulos = Math.max(0, (STATE.capitalTotalArticulos || 0) + (monto === 'sumar' ? valor : -valor));
+  persistConfig();
+  render();
+  showToast(`Capital total ${monto === 'sumar' ? 'aumentado' : 'reducido'} en ${formatMoney(valor)}`);
+}
 
 /* ================= BACKUP COMPLETO Y RESTAURACIÓN ================= */
 function downloadFullBackup(){
@@ -506,7 +543,7 @@ function downloadFullBackup(){
     clients: STATE.clients,
     loans: STATE.loans,
     sales: STATE.sales,
-    config: { businessName: STATE.businessName || '', capitalTotal: STATE.capitalTotal || 0, capitalTotalArticulos: STATE.capitalTotalArticulos || 0 }
+    config: { businessName: STATE.businessName || '', capitalTotal: STATE.capitalTotal || 0, capitalTotalArticulos: STATE.capitalTotalArticulos || 0, capitalInicial: STATE.capitalInicial || 0 }
   };
   const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
@@ -555,6 +592,7 @@ function handleRestoreFile(){
     STATE.businessName = (data.config && data.config.businessName) || '';
     STATE.capitalTotal = (data.config && Number(data.config.capitalTotal)) || 0;
     STATE.capitalTotalArticulos = (data.config && Number(data.config.capitalTotalArticulos)) || 0;
+    STATE.capitalInicial = (data.config && Number(data.config.capitalInicial)) || 0;
     await persist('clients', STATE.clients);
     await persist('loans', STATE.loans);
     await persist('sales', STATE.sales);
@@ -838,7 +876,7 @@ function getMetricas(){
       }
     });
   });
-  const retornoCapital = (STATE.capitalTotal || 0) + interesesCobradosTotal;
+  const retornoCapital = (STATE.capitalInicial || STATE.capitalTotal || 0) + interesesCobradosTotal;
 
   const clientesConPrestamo = new Set(STATE.loans.map(l => l.clientId));
   const clientesVencidosSet = new Set(loansActivos.filter(l => itemEstado(l) === 'vencido').map(l => l.clientId));
@@ -1076,7 +1114,11 @@ function renderMetricas(){
   return `
     <div class="main-head">
       <div><h1>Métricas de Préstamos</h1><p class="sub">Foto del capital de tu negocio, solo préstamos</p></div>
-      <button class="btn btn-sm" onclick="configureCapitalTotal()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotal ? 'Editar capital total' : 'Cargar capital total'}</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" style="color:#3F7A46;border-color:#3F7A46;" onclick="ajustarCapitalTotal('sumar')"><i class="fa-solid fa-plus"></i>Agregar capital</button>
+        <button class="btn btn-sm" style="color:#A32D2D;border-color:#A32D2D;" onclick="ajustarCapitalTotal('retirar')"><i class="fa-solid fa-minus"></i>Retirar capital</button>
+        <button class="btn btn-sm" onclick="configureCapitalTotal()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotal ? 'Editar capital total' : 'Cargar capital total'}</button>
+      </div>
     </div>
     ${!STATE.capitalTotal ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste tu capital total. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
     <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);">
@@ -1090,14 +1132,19 @@ function renderMetricas(){
       <div class="kpi"><div class="lbl">N° de clientes</div><div class="val">${m.numClientes}</div></div>
       <div class="kpi"><div class="lbl">Préstamos activos</div><div class="val">${m.prestamosActivos}</div></div>
       <div class="kpi"><div class="lbl">Clientes con atrasos</div><div class="val brick">${m.clientesVencidos}</div></div>
-      <div class="kpi"><div class="lbl">Retorno de capital</div><div class="val sage">${formatMoney(m.retornoCapital)}</div></div>
+      <div class="kpi">
+        <button class="kpi-info" onclick="showKpiInfo('retornoCapital')">+</button>
+        <div class="lbl">Retorno al capital</div>
+        <div class="val sage">${formatMoney(m.retornoCapital)}</div>
+        <div style="margin-top:6px;"><span style="font-size:11px;color:var(--paper-dim);cursor:pointer;text-decoration:underline;" onclick="configureCapitalInicial()">Corregir capital inicial (${formatMoney(STATE.capitalInicial || STATE.capitalTotal || 0)})</span></div>
+      </div>
     </div>
     <div style="font-size:12px;color:var(--paper-dim);margin-top:16px;line-height:1.6;">
       <ul style="margin:0;padding-left:18px;">
         <li style="margin-bottom:4px;"><b>Capital disponible</b> = Capital total que cargaste − Capital prestado en préstamos activos hoy.</li>
         <li style="margin-bottom:4px;"><b>Capital prestado</b> y <b>Préstamos activos</b> no cuentan los finalizados ni los refinanciados.</li>
         <li style="margin-bottom:4px;"><b>Intereses cobrados</b> separa, de cada pago, la parte que es ganancia (no capital), estimada de forma proporcional según el % de interés de cada préstamo.</li>
-        <li style="margin-bottom:4px;"><b>Retorno de capital</b> = Capital total que cargaste + Intereses cobrados históricamente (no del mes, de siempre) — muestra cómo creció tu capital real, sin contar dos veces el capital que ya volvió.</li>
+        <li style="margin-bottom:4px;"><b>Retorno de capital</b> = Capital inicial (fijo, el de arranque) + Intereses cobrados históricamente — muestra cómo creció tu capital gracias al interés. No se mueve cuando usás "Agregar/Retirar capital", porque esa plata la pusiste vos, no la ganó el negocio.</li>
         <li style="margin-bottom:4px;"><b>N° de clientes</b> son los clientes distintos que tienen o tuvieron al menos un préstamo.</li>
         <li><b>Clientes con atrasos</b> cuenta personas, no cuotas — si alguien tiene 3 cuotas vencidas del mismo préstamo, cuenta una sola vez.</li>
       </ul>
@@ -1127,7 +1174,11 @@ function renderMetricasArticulos(){
   return `
     <div class="main-head">
       <div><h1>Métricas de Artículos</h1><p class="sub">Foto del capital de tu negocio, solo artículos financiados</p></div>
-      <button class="btn btn-sm" onclick="configureCapitalTotalArticulos()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotalArticulos ? 'Editar capital total' : 'Cargar capital total'}</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" style="color:#3F7A46;border-color:#3F7A46;" onclick="ajustarCapitalTotalArticulos('sumar')"><i class="fa-solid fa-plus"></i>Agregar capital</button>
+        <button class="btn btn-sm" style="color:#A32D2D;border-color:#A32D2D;" onclick="ajustarCapitalTotalArticulos('retirar')"><i class="fa-solid fa-minus"></i>Retirar capital</button>
+        <button class="btn btn-sm" onclick="configureCapitalTotalArticulos()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotalArticulos ? 'Editar capital total' : 'Cargar capital total'}</button>
+      </div>
     </div>
     ${!STATE.capitalTotalArticulos ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste el capital que destinás a artículos. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
     <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
@@ -1742,7 +1793,8 @@ const KPI_INFO = {
   vencidasArticulos: { title: 'Cuotas vencidas (artículos)', desc: 'Cantidad de cuotas de ventas financiadas que ya pasaron su fecha límite y todavía no se pagaron (total o parcialmente).' },
   evoPrestado: { title: 'Prestado', desc: 'Suma del monto de cada préstamo que diste, agrupado por el mes en que lo cargaste (según la fecha del préstamo). No incluye ventas de artículos.' },
   evoCobrado: { title: 'Cobrado', desc: 'Suma de todos los pagos que registraste (de préstamos y de artículos), agrupados por el mes en que se hizo cada pago. Es el efectivo real que entró.' },
-  evoMora: { title: 'Mora acumulada', desc: 'El recargo por mora que hoy tienen las cuotas vencidas, agrupado según el mes en que esa cuota debía pagarse. Como se calcula con la fecha de hoy, meses pasados pueden cambiar si esas cuotas se terminan pagando o si pasa más tiempo.' }
+  evoMora: { title: 'Mora acumulada', desc: 'El recargo por mora que hoy tienen las cuotas vencidas, agrupado según el mes en que esa cuota debía pagarse. Como se calcula con la fecha de hoy, meses pasados pueden cambiar si esas cuotas se terminan pagando o si pasa más tiempo.' },
+  retornoCapital: { title: 'Retorno de capital', desc: 'Capital inicial (el que cargaste la primera vez, no el que vas ajustando con "Agregar/Retirar capital") + Intereses cobrados históricamente. Muestra cuánto creció tu capital real gracias al interés que cobrás — no se infla si después metés plata nueva con "Agregar capital", porque esa plata no la generó el negocio, la pusiste vos.' }
 };
 function showKpiInfo(key){
   const info = KPI_INFO[key];
