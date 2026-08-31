@@ -990,7 +990,6 @@ function renderSidebar(){
       ${item('clientes', 'fa-users', 'Clientes')}
       ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
       ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
-      ${item('evolucion', 'fa-chart-line', 'Evolución')}
     </div>
     <div class="sidebar-foot">
       <div class="agname">${STATE.clients.length} clientes cargados</div>
@@ -1683,9 +1682,7 @@ function render(skipSearchSync){
   else if(STATE.tab === 'ventas') html = renderVentas();
   else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
   else if(STATE.tab === 'calendario') html = renderCalendario();
-  else if(STATE.tab === 'evolucion') html = renderEvolucion();
   document.getElementById('content').innerHTML = html;
-  if(STATE.tab === 'evolucion') initEvolucionChart();
   const searchWrap = document.getElementById('search-wrap');
   searchWrap.style.display = (STATE.tab === 'clientes' && !STATE.selectedClientId) ? 'block' : 'none';
   if(!skipSearchSync){
