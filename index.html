@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], tab: 'dashboard', search: '', historialSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth() };
+let STATE = { clients: [], loans: [], sales: [], stock: [], tab: 'dashboard', search: '', historialSearch: '', stockSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth() };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -266,16 +266,20 @@ function formatMoney(n){
 function daysBetween(a, b){
   return Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
 }
-function genCuotas(startDate, numCuotas, totalAmount, periodicidad){
+function genCuotas(startDate, numCuotas, totalAmount, periodicidad, interesTotal){
   periodicidad = periodicidad || 'mensual';
+  interesTotal = interesTotal || 0;
   const base = Math.floor((totalAmount / numCuotas) * 100) / 100;
   const cuotas = [];
-  let acumulado = 0;
+  let acumulado = 0, interesAcumulado = 0;
   for(let i = 1; i <= numCuotas; i++){
     let amount = base;
     if(i === numCuotas) amount = Math.round((totalAmount - acumulado) * 100) / 100;
     acumulado += amount;
-    cuotas.push({ n:i, dueDate: addPeriod(startDate, i, periodicidad), amount, paidAmount:0, paid:false, paidDate:null });
+    let interes = totalAmount > 0 ? Math.round((amount / totalAmount) * interesTotal * 100) / 100 : 0;
+    if(i === numCuotas) interes = Math.round((interesTotal - interesAcumulado) * 100) / 100;
+    interesAcumulado += interes;
+    cuotas.push({ n:i, dueDate: addPeriod(startDate, i, periodicidad), amount, interes, paidAmount:0, paid:false, paidDate:null });
   }
   return cuotas;
 }
@@ -434,8 +438,9 @@ async function persist(key, data){
 }
 async function loadAll(){
   STATE.loading = true; render();
-  const [c, l, s, cfg] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales'), safeGet('config')]);
+  const [c, l, s, cfg, stk] = await Promise.all([safeGet('clients'), safeGet('loans'), safeGet('sales'), safeGet('config'), safeGet('stock')]);
   STATE.clients = c || []; STATE.loans = l || []; STATE.sales = s || [];
+  STATE.stock = stk || [];
   STATE.businessName = (cfg && cfg.businessName) || '';
   STATE.capitalTotal = (cfg && Number(cfg.capitalTotal)) || 0;
   STATE.capitalTotalArticulos = (cfg && Number(cfg.capitalTotalArticulos)) || 0;
@@ -685,7 +690,7 @@ async function saveLoan(data){
   const client = findOrCreateClient(data.clientName, data.phone, data.dni, data.address);
   const total = Math.round(data.amount * (1 + data.percent / 100) * 100) / 100;
   const periodicidad = data.periodicidad || 'mensual';
-  const loan = { id: genId(), clientId: client.id, clientName: client.name, amount: data.amount, date: data.date, percent: data.percent, moraPercent: data.moraPercent || 0, garantia: data.garantia || '', periodicidad, totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total, periodicidad) };
+  const loan = { id: genId(), clientId: client.id, clientName: client.name, amount: data.amount, date: data.date, percent: data.percent, moraPercent: data.moraPercent || 0, garantia: data.garantia || '', socio: data.socio || '', periodicidad, totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total, periodicidad, total - data.amount) };
   STATE.loans = [loan, ...STATE.loans];
   await persist('clients', STATE.clients); await persist('loans', STATE.loans);
   closeModal(); render();
@@ -728,6 +733,21 @@ async function deleteSale(id){
   STATE.sales = STATE.sales.filter(s => s.id !== id);
   await persist('sales', STATE.sales); render();
 }
+async function saveStockItem(data, editId){
+  if(editId){
+    STATE.stock = STATE.stock.map(s => s.id === editId ? { ...s, ...data } : s);
+  } else {
+    STATE.stock = [{ id: genId(), ...data }, ...STATE.stock];
+  }
+  await persist('stock', STATE.stock);
+  closeModal(); render();
+  showToast(editId ? 'Stock actualizado' : 'Artículo agregado al stock');
+}
+async function deleteStockItem(id){
+  if(!confirm('¿Eliminar este artículo del stock?')) return;
+  STATE.stock = STATE.stock.filter(s => s.id !== id);
+  await persist('stock', STATE.stock); render();
+}
 async function deleteClient(id){
   const client = STATE.clients.find(c => c.id === id);
   if(!client) return;
@@ -768,7 +788,7 @@ async function refinanceItem(oldType, oldId, data){
     id: genId(), clientId: oldItem.clientId, clientName: oldItem.clientName,
     amount: data.amount, date: data.date, percent: data.percent,
     moraPercent: data.moraPercent || 0, garantia: data.garantia || '',
-    totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total),
+    totalToReturn: total, cuotas: genCuotas(data.date, data.numCuotas, total, 'mensual', total - data.amount),
     refinanciaDeId: oldId, refinanciaDeTipo: oldType,
     refinanciaDeInfo: `${oldType === 'loan' ? 'préstamo' : 'venta'} del ${formatDate(oldItem.date)}`
   };
@@ -796,6 +816,12 @@ function onHistorialSearch(v){
 function clearHistorialSearch(){
   STATE.historialSearch = '';
   render(true);
+}
+function onStockSearch(v){
+  STATE.stockSearch = v;
+  render(true);
+  const el = document.getElementById('stock-search-input');
+  if(el){ el.focus(); const p = el.value.length; el.setSelectionRange(p, p); }
 }
 function onClientFilterChange(v){ STATE.clientFilter = v; render(true); }
 function toggleExpand(id){ STATE.expanded = STATE.expanded === id ? null : id; render(); }
@@ -846,13 +872,14 @@ function getMetricas(){
   let interesesCobradosMes = 0;
   let interesesCobradosTotal = 0;
   STATE.loans.forEach(l => {
-    const ratioInteres = l.totalToReturn > 0 ? Math.max(0, (l.totalToReturn - l.amount) / l.totalToReturn) : 0;
     l.cuotas.forEach(c => {
       if(c.paidAmount > 0){
-        interesesCobradosTotal += c.paidAmount * ratioInteres;
+        const ratioCuota = c.amount > 0 ? Math.min(1, (c.interes || 0) / c.amount) : 0;
+        const interesPagado = c.paidAmount * ratioCuota;
+        interesesCobradosTotal += interesPagado;
         if(c.paidDate && c.paidDate.slice(0, 7) === mesActual){
           montoCobradoMes += c.paidAmount;
-          interesesCobradosMes += c.paidAmount * ratioInteres;
+          interesesCobradosMes += interesPagado;
         }
       }
     });
@@ -879,10 +906,10 @@ function getInteresesDelMes(year, month){
   const clave = `${year}-${String(month + 1).padStart(2, '0')}`;
   let intereses = 0, cobradoTotal = 0, cuotasPagadas = 0;
   STATE.loans.forEach(l => {
-    const ratioInteres = l.totalToReturn > 0 ? Math.max(0, (l.totalToReturn - l.amount) / l.totalToReturn) : 0;
     l.cuotas.forEach(c => {
       if(c.paidAmount > 0 && c.paidDate && c.paidDate.slice(0, 7) === clave){
-        intereses += c.paidAmount * ratioInteres;
+        const ratioCuota = c.amount > 0 ? Math.min(1, (c.interes || 0) / c.amount) : 0;
+        intereses += c.paidAmount * ratioCuota;
         cobradoTotal += c.paidAmount;
         cuotasPagadas++;
       }
@@ -987,6 +1014,7 @@ function renderSidebar(){
       ${item('metricasArticulos', 'fa-chart-pie', 'Métricas de Artículos')}
       ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
       ${item('ventas', 'fa-cart-shopping', 'Artículos')}
+      ${item('stock', 'fa-boxes-stacked', 'Stock')}
       ${item('clientes', 'fa-users', 'Clientes')}
       ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
       ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
@@ -1013,6 +1041,7 @@ function renderSidebar(){
 
 /* ================= RENDER: TABLAS AUXILIARES ================= */
 function renderCuotasTable(item, type){
+  const primeraNoPagadaIdx = item.cuotas.findIndex(c => !c.paid);
   return `
     <table class="cuotas-table">
       <thead><tr><th>Cuota</th><th>Vence</th><th>Monto</th><th>Estado</th><th></th></tr></thead>
@@ -1021,14 +1050,16 @@ function renderCuotasTable(item, type){
           const est = cuotaEstado(c);
           const key = est === 'vencida' ? 'vencido' : est === 'proxima' ? 'proximo' : est === 'pagada' ? 'finalizado' : 'aldia';
           const recargo = calcRecargoMora(c, item);
+          const puedeRenovar = type === 'loan' && !item.refinanciadoEnId && !c.paid && c.paidAmount === 0 && i === primeraNoPagadaIdx;
           return `
             <tr>
               <td>${c.n}/${item.cuotas.length}</td>
               <td>${formatDate(c.dueDate)}</td>
-              <td>${formatMoney(c.amount)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;margin-top:2px;">+ ${formatMoney(recargo)} mora${c.moraOverride ? ' <i class="fa-solid fa-pen" style="font-size:9px;" title="Mora ajustada a mano"></i>' : ''}</div>` : ''}</td>
+              <td>${formatMoney(c.amount)}${c.renovada ? `<div style="color:#463ACB;font-size:11px;margin-top:2px;"><i class="fa-solid fa-rotate" style="font-size:9px;"></i> Renovación (solo interés)</div>` : ''}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;margin-top:2px;">+ ${formatMoney(recargo)} mora${c.moraOverride ? ' <i class="fa-solid fa-pen" style="font-size:9px;" title="Mora ajustada a mano"></i>' : ''}</div>` : ''}</td>
               <td>${statusPill(key)}</td>
               <td style="text-align:right;white-space:nowrap;">
                 ${est === 'vencida' ? `<button class="btn btn-sm" onclick="event.stopPropagation();openMoraModal('${type}','${item.id}',${i})"><i class="fa-solid fa-sliders" style="margin-right:4px;"></i>Modificar mora</button>` : ''}
+                ${puedeRenovar ? `<button class="btn btn-sm" style="margin-left:6px;" onclick="event.stopPropagation();openRenovarModal('${item.id}',${i})"><i class="fa-solid fa-rotate" style="margin-right:4px;"></i>Renovar (solo interés)</button>` : ''}
                 ${!c.paid ? `<button class="btn btn-sm" style="margin-left:6px;" onclick="event.stopPropagation();openPayModal('${type}','${item.id}',${i})">Registrar pago</button>` : ''}
               </td>
             </tr>`;
@@ -1037,6 +1068,12 @@ function renderCuotasTable(item, type){
     </table>`;
 }
 
+function itemOrdinalForClient(item, type){
+  const arr = type === 'loan' ? STATE.loans : STATE.sales;
+  const mismos = arr.filter(it => it.clientId === item.clientId).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const idx = mismos.findIndex(it => it.id === item.id);
+  return { ordinal: idx + 1, total: mismos.length };
+}
 function renderItemCard(item, type){
   const estado = itemEstado(item);
   const saldo = itemSaldoPendiente(item);
@@ -1047,6 +1084,7 @@ function renderItemCard(item, type){
     : `${esc(item.article)} · anticipo ${formatMoney(item.anticipo)} · ${esc(item.paymentMethod)}`;
   const delFn = type === 'loan' ? 'deleteLoan' : 'deleteSale';
   const puedeRefinanciar = !item.refinanciadoEnId && saldo > 0.01;
+  const ordinal = itemOrdinalForClient(item, type);
   return `
     <div class="card item-card">
       <div class="head" onclick="toggleExpand('${item.id}')">
@@ -1054,9 +1092,11 @@ function renderItemCard(item, type){
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span class="name">${esc(item.clientName)}</span>
             ${statusPill(estado)}
+            ${ordinal.total > 1 ? `<span class="pill" style="background:var(--ink-3);color:var(--paper-dim);border-color:var(--line-strong);">${type === 'loan' ? 'Préstamo' : 'Venta'} N.º ${ordinal.ordinal} de ${ordinal.total}</span>` : ''}
           </div>
           <div class="meta">${metaLine}</div>
           ${type === 'loan' && item.garantia ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-shield-halved" style="margin-right:5px;color:var(--paper-dim);"></i>Garantía: ${esc(item.garantia)}</div>` : ''}
+          ${type === 'loan' && item.socio ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-user-tie" style="margin-right:5px;color:var(--paper-dim);"></i>Cargado por: ${esc(item.socio)}</div>` : ''}
           ${item.refinanciadoEnId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Refinanciado el ${formatDate(item.refinanciadoEnFecha)} → se convirtió en un préstamo nuevo</div>` : ''}
           ${item.refinanciaDeId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Viene de refinanciar el ${esc(item.refinanciaDeInfo || '')}</div>` : ''}
           <div class="cuota-line">Cuota ${cuotaActualLabel(item)} · saldo pendiente <b>${formatMoney(saldo)}</b></div>
@@ -1471,8 +1511,13 @@ function renderNotifCard(d){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="btn btn-sm" style="background:#25D366;border-color:#25D366;color:#fff;" onclick="openReminderModal('${d.type}','${d.item.id}',${d.cuotaIndex})"><i class="fa-brands fa-whatsapp" style="margin-right:4px;"></i>Recordar al cliente</button>
+        <button class="btn btn-ghost" style="color:#E2726B;" title="Descartar esta notificación" onclick="dismissNotification('${d.type}','${d.item.id}',${d.cuotaIndex})"><i class="fa-solid fa-trash" style="margin:0;"></i></button>
       </div>
     </div>`;
+}
+function dismissNotification(type, id, cuotaIndex){
+  STATE.notifDismissed.add(`${type}-${id}-${cuotaIndex}`);
+  render();
 }
 
 function renderPrestamos(){
@@ -1574,10 +1619,56 @@ function renderVentas(){
       <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Artículos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.sales.length} artículos vendidos financiados</p></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-sm" onclick="exportSalesCSV()"><i class="fa-solid fa-file-csv"></i>Exportar CSV</button>
+        <button class="btn btn-sm" onclick="openVentasPdfModal()"><i class="fa-solid fa-file-pdf"></i>PDF por forma de pago</button>
         <button class="btn btn-solid" onclick="openSaleModal()"><i class="fa-solid fa-plus"></i>Nueva venta</button>
       </div>
     </div>
     ${STATE.sales.length === 0 ? `<div class="card empty-row">Todavía no cargaste ventas de artículos.</div>` : STATE.sales.map(s => renderItemCard(s, 'sale')).join('')}
+  `;
+}
+function renderStock(){
+  const totalUnidades = STATE.stock.reduce((a, s) => a + (Number(s.cantidad) || 0), 0);
+  const totalCosto = STATE.stock.reduce((a, s) => a + (Number(s.cantidad) || 0) * (Number(s.precioCosto) || 0), 0);
+  const totalVenta = STATE.stock.reduce((a, s) => a + (Number(s.cantidad) || 0) * (Number(s.precioVenta) || 0), 0);
+  const q = (STATE.stockSearch || '').trim().toLowerCase();
+  const filtrado = q ? STATE.stock.filter(s => s.articulo.toLowerCase().includes(q)) : STATE.stock;
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Stock</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">${STATE.stock.length} artículos cargados en stock</p></div>
+      <button class="btn btn-solid" onclick="openStockModal()"><i class="fa-solid fa-plus"></i>Cargar stock</button>
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
+      <div class="kpi"><div class="lbl">Unidades en stock</div><div class="val">${totalUnidades}</div></div>
+      <div class="kpi"><div class="lbl">Valor total (costo)</div><div class="val">${formatMoney(totalCosto)}</div></div>
+      <div class="kpi"><div class="lbl">Valor total (venta)</div><div class="val sage">${formatMoney(totalVenta)}</div></div>
+    </div>
+    ${STATE.stock.length > 0 ? `
+    <div class="search-wrap" style="max-width:360px;">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input id="stock-search-input" value="${esc(STATE.stockSearch || '')}" placeholder="Buscar por producto…" oninput="onStockSearch(this.value)">
+    </div>` : ''}
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table>
+        <thead><tr><th>Artículo</th><th>Cantidad</th><th>Costo unit.</th><th>Venta unit.</th><th>Cargado por</th><th>Fecha</th><th></th></tr></thead>
+        <tbody>
+          ${STATE.stock.length === 0 ? `<tr><td colspan="7" class="empty-row">Todavía no cargaste stock. Tocá "Cargar stock" para agregar el primer artículo.</td></tr>` :
+            filtrado.length === 0 ? `<tr><td colspan="7" class="empty-row">No se encontró ningún producto con ese nombre.</td></tr>` :
+            [...filtrado].sort((a, b) => b.fecha.localeCompare(a.fecha)).map(s => `
+            <tr>
+              <td style="font-weight:600;">${esc(s.articulo)}</td>
+              <td>${s.cantidad}</td>
+              <td>${s.precioCosto ? formatMoney(s.precioCosto) : '-'}</td>
+              <td>${s.precioVenta ? formatMoney(s.precioVenta) : '-'}</td>
+              <td style="color:var(--paper-dim);">${esc(s.socio) || '-'}</td>
+              <td style="color:var(--paper-dim);">${formatDate(s.fecha)}</td>
+              <td style="text-align:right;white-space:nowrap;">
+                <button class="btn btn-ghost" onclick="openStockModal('${s.id}')"><i class="fa-solid fa-pen" style="margin:0;"></i></button>
+                <button class="btn btn-ghost" style="color:#E2726B;" onclick="deleteStockItem('${s.id}')"><i class="fa-solid fa-trash" style="margin:0;"></i></button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 function renderClientesList(){
@@ -1680,6 +1771,7 @@ function render(skipSearchSync){
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
   else if(STATE.tab === 'historial') html = renderHistorialPrestamos();
   else if(STATE.tab === 'ventas') html = renderVentas();
+  else if(STATE.tab === 'stock') html = renderStock();
   else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
   else if(STATE.tab === 'calendario') html = renderCalendario();
   document.getElementById('content').innerHTML = html;
@@ -1744,7 +1836,7 @@ function openLoanFormModal(periodicidad){
   const numCuotasField = periodicidad === 'mensual'
     ? `<select name="numCuotas" required onchange="updateLoanPreview()">${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}</select>`
     : `<input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()">`;
-  const opcionesInteres = periodicidad === 'diario' ? [5, 10, 15, 20, 25, 30] : [1, 20, 30, 35, 40, 100];
+  const opcionesInteres = periodicidad === 'diario' ? [5, 10, 15, 20, 25, 30] : [1, 20, 30, 35, 40, 100, 110, 120, 130, 140, 150];
   const tituloPeriodo = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[periodicidad];
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
@@ -1781,6 +1873,7 @@ function openLoanFormModal(periodicidad){
             <input type="hidden" name="moraPercent" value="1.5">
           </div>` : ''}
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" placeholder="Ej: Moto Honda Wave 110, patente ABC123"></div>
+          <div class="field"><label>Socio que cargó el préstamo</label><input name="socio" placeholder="Nombre del socio" required></div>
           <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
             <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Monto a devolver:</span><span id="loan-total" style="font-weight:700;">${formatMoney(0)}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Valor de cada cuota:</span><span id="loan-cuota">${formatMoney(0)}</span></div>
@@ -1813,8 +1906,180 @@ function submitLoanForm(e, periodicidad){
     percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
     moraPercent: f.moraPercent ? (Number(f.moraPercent.value) || 0) : 0,
     garantia: f.garantia.value.trim(),
+    socio: f.socio.value.trim(),
     periodicidad: f.periodicidad.value || periodicidad || 'mensual'
   });
+}
+
+/* ================= STOCK ================= */
+function openStockModal(editId){
+  const item = editId ? STATE.stock.find(s => s.id === editId) : null;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3>${item ? 'Editar artículo de stock' : 'Cargar stock'}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <form onsubmit="submitStockForm(event${editId ? `,'${editId}'` : ''})">
+          <div class="field"><label>Artículo</label><input name="articulo" value="${item ? esc(item.articulo) : ''}" placeholder="Ej: Celular Samsung A15" required></div>
+          <div class="row-3">
+            <div class="field"><label>Cantidad</label><input name="cantidad" type="number" min="1" step="1" value="${item ? item.cantidad : 1}" required></div>
+            <div class="field"><label>Precio de costo (opcional)</label><input name="precioCosto" type="number" min="0" step="0.01" value="${item && item.precioCosto ? item.precioCosto : ''}"></div>
+            <div class="field"><label>Precio de venta (opcional)</label><input name="precioVenta" type="number" min="0" step="0.01" value="${item && item.precioVenta ? item.precioVenta : ''}"></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label>Socio que lo cargó</label><input name="socio" value="${item ? esc(item.socio || '') : ''}" placeholder="Nombre del socio" required></div>
+            <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${item ? item.fecha : todayStr()}" required></div>
+          </div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">${item ? 'Guardar cambios' : 'Agregar al stock'}</button>
+        </form>
+      </div>
+    </div>`;
+}
+function submitStockForm(e, editId){
+  e.preventDefault();
+  const f = e.target;
+  saveStockItem({
+    articulo: f.articulo.value.trim(),
+    cantidad: Number(f.cantidad.value),
+    precioCosto: Number(f.precioCosto.value) || 0,
+    precioVenta: Number(f.precioVenta.value) || 0,
+    socio: f.socio.value.trim(),
+    fecha: f.fecha.value
+  }, editId);
+}
+
+/* ================= PDF DE VENTAS POR FORMA DE PAGO ================= */
+function openVentasPdfModal(){
+  const now = new Date();
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box" style="max-width:380px;">
+        <div class="modal-head"><h3><i class="fa-solid fa-file-pdf" style="color:var(--brass);margin-right:8px;"></i>PDF por forma de pago</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13px;color:var(--paper-dim);margin-bottom:14px;">Elegí el mes que querés ver. El PDF lista cada venta de ese mes con su forma de pago, y suma los totales para que puedas cuadrar caja.</div>
+        <div class="row-2">
+          <div class="field"><label>Mes</label>
+            <select id="ventas-pdf-month">${MESES_LARGO.map((m, i) => `<option value="${i}" ${i === now.getMonth() ? 'selected' : ''}>${m}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Año</label>
+            <select id="ventas-pdf-year">${Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`).join('')}</select>
+          </div>
+        </div>
+        <button class="btn btn-solid" style="width:100%;" onclick="generateVentasPagoPDF()">Generar PDF</button>
+      </div>
+    </div>`;
+}
+function generateVentasPagoPDF(){
+  const year = Number(document.getElementById('ventas-pdf-year').value);
+  const month = Number(document.getElementById('ventas-pdf-month').value);
+  const clave = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const ventas = STATE.sales.filter(s => s.date.slice(0, 7) === clave).sort((a, b) => a.date.localeCompare(b.date));
+
+  if(ventas.length === 0){ showToast('No hay ventas cargadas ese mes'); return; }
+  if(typeof window.jspdf === 'undefined'){ showToast('No se pudo generar el PDF. Revisá tu conexión.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 14;
+  const cols = [
+    { key: 'cliente', label: 'Cliente', x: marginX, w: 45 },
+    { key: 'fecha', label: 'Fecha', x: marginX + 45, w: 22 },
+    { key: 'articulo', label: 'Artículo', x: marginX + 67, w: 55 },
+    { key: 'precio', label: 'Precio total', x: marginX + 122, w: 32, align: 'right' },
+    { key: 'anticipo', label: 'Anticipo', x: marginX + 154, w: 32, align: 'right' },
+    { key: 'forma', label: 'Forma de pago', x: marginX + 186, w: 40 }
+  ];
+  let y = 18;
+
+  function drawHeader(){
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(28, 43, 54);
+    doc.text(`Ventas de artículos — ${MESES_LARGO[month]} ${year}`, marginX, y);
+    if(STATE.businessName){
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(105, 116, 124);
+      doc.text(STATE.businessName, pageWidth - marginX, y, { align: 'right' });
+    }
+    y += 8;
+    doc.setDrawColor(228, 225, 216);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 7;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(105, 116, 124);
+    cols.forEach(c => doc.text(c.label, c.x, y, c.align ? { align: c.align, maxWidth: c.w } : undefined));
+    y += 2;
+    doc.setDrawColor(210, 205, 191);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 6;
+  }
+
+  drawHeader();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(28, 43, 54);
+
+  const totalesPorForma = {};
+  let totalGeneral = 0;
+
+  ventas.forEach(s => {
+    if(y > pageHeight - 20){ doc.addPage(); y = 18; drawHeader(); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(28, 43, 54); }
+    const row = {
+      cliente: s.clientName,
+      fecha: formatDate(s.date),
+      articulo: s.article,
+      precio: formatMoney(s.price),
+      anticipo: formatMoney(s.anticipo),
+      forma: s.paymentMethod || '-'
+    };
+    cols.forEach(c => {
+      const texto = doc.splitTextToSize(String(row[c.key]), c.w);
+      doc.text(texto[0] || '', c.x, y, c.align ? { align: c.align } : undefined);
+    });
+    y += 6.5;
+    const forma = s.paymentMethod || 'Sin especificar';
+    totalesPorForma[forma] = (totalesPorForma[forma] || 0) + (Number(s.anticipo) || 0);
+    totalGeneral += Number(s.anticipo) || 0;
+  });
+
+  y += 6;
+  if(y > pageHeight - 40){ doc.addPage(); y = 18; }
+  doc.setDrawColor(228, 225, 216);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11.5);
+  doc.setTextColor(28, 43, 54);
+  doc.text('Totales de anticipos por forma de pago', marginX, y);
+  y += 8;
+  doc.setFontSize(10);
+  Object.keys(totalesPorForma).sort().forEach(forma => {
+    doc.setFont('helvetica', 'normal');
+    doc.text(forma, marginX, y);
+    doc.setFont('helvetica', 'bold');
+    doc.text(formatMoney(totalesPorForma[forma]), marginX + 60, y);
+    y += 6.5;
+  });
+  y += 3;
+  doc.setDrawColor(210, 205, 191);
+  doc.line(marginX, y, marginX + 90, y);
+  y += 7;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Total general de anticipos', marginX, y);
+  doc.text(formatMoney(totalGeneral), marginX + 60, y);
+
+  y += 12;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Los totales corresponden al anticipo (lo cobrado en el momento de la venta), no al precio total del artículo — el resto queda financiado en cuotas.', marginX, y, { maxWidth: pageWidth - marginX * 2 });
+
+  const safeName = `ventas-${year}-${String(month + 1).padStart(2, '0')}`;
+  doc.save(`${safeName}.pdf`);
+  closeModal();
 }
 
 function openSaleModal(){
@@ -1967,6 +2232,7 @@ function openEditLoanModal(id){
             </div>
           </div>
           <div class="field"><label>Garantía / prenda (opcional)</label><input name="garantia" value="${esc(item.garantia || '')}" placeholder="Ej: Moto Honda Wave 110"></div>
+          <div class="field"><label>Socio que cargó el préstamo</label><input name="socio" value="${esc(item.socio || '')}" placeholder="Nombre del socio"></div>
           <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
         </form>
       </div>
@@ -1993,6 +2259,7 @@ function submitEditLoanForm(e, id){
     amount: Number(f.amount.value), date: f.date.value,
     percent: Number(f.percent.value), numCuotas: Number(f.numCuotas.value),
     moraPercent: Number(f.moraPercent.value) || 0, garantia: f.garantia.value.trim(),
+    socio: f.socio.value.trim(),
     periodicidad: f.periodicidad.value || 'mensual'
   });
 }
@@ -2011,10 +2278,11 @@ async function editLoan(id, data){
   loan.percent = data.percent;
   loan.moraPercent = data.moraPercent;
   loan.garantia = data.garantia;
+  loan.socio = data.socio;
   loan.periodicidad = data.periodicidad;
   loan.totalToReturn = total;
   if(!tienePagos || cambioEstructural){
-    loan.cuotas = genCuotas(data.date, data.numCuotas, total, data.periodicidad);
+    loan.cuotas = genCuotas(data.date, data.numCuotas, total, data.periodicidad, total - data.amount);
   }
   const client = STATE.clients.find(c => c.id === loan.clientId);
   if(client){ client.phone = data.phone; client.dni = data.dni; client.address = data.address; }
@@ -2148,6 +2416,87 @@ async function clearMoraOverride(type, id, cuotaIndex){
   else{ STATE.sales = arr.map(it => it.id === id ? item : it); await persist('sales', STATE.sales); }
   closeModal(); render();
   showToast('Vuelto al cálculo automático');
+}
+
+/* ================= RENOVAR (PAGAR SOLO INTERÉS) ================= */
+function openRenovarModal(loanId, cuotaIndex){
+  const loan = STATE.loans.find(l => l.id === loanId);
+  if(!loan) return;
+  const cuota = loan.cuotas[cuotaIndex];
+  const interesAhora = Math.round((cuota.interes || 0) * 100) / 100;
+  const periodicidad = loan.periodicidad || 'mensual';
+  const opcionesInteres = periodicidad === 'diario' ? [5, 10, 15, 20, 25, 30] : [1, 20, 30, 35, 40, 100, 110, 120, 130, 140, 150];
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box">
+        <div class="modal-head"><h3><i class="fa-solid fa-rotate" style="color:var(--brass);margin-right:8px;"></i>Renovar préstamo — ${esc(loan.clientName)}</h3><button class="btn btn-ghost" onclick="closeModal()"><i class="fa-solid fa-xmark" style="margin:0;"></i></button></div>
+        <div style="font-size:13.5px;color:var(--paper-dim);margin-bottom:14px;line-height:1.6;">
+          El cliente paga solo el interés de este período (<b style="color:var(--paper);">${formatMoney(interesAhora)}</b>) y el capital (<b style="color:var(--paper);">${formatMoney(loan.amount)}</b>) sigue en pie, con una cuota nueva para el próximo período.
+        </div>
+        <form onsubmit="submitRenovarForm(event,'${loanId}',${cuotaIndex})">
+          <div class="field"><label>Fecha de pago del interés</label><input name="fechaPago" type="date" value="${todayStr()}" required></div>
+          <div class="field"><label>Interés para el próximo período (%)</label>
+            <select name="nuevoPercent" required onchange="updateRenovarPreview('${loanId}')">
+              <option value="">Elegí un %</option>
+              ${opcionesInteres.map(p => `<option value="${p}" ${p === loan.percent ? 'selected' : ''}>${p}%</option>`).join('')}
+            </select>
+          </div>
+          <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;"><span>Capital que sigue debiendo:</span><span style="font-weight:700;">${formatMoney(loan.amount)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;" id="renovar-total-row"><span>Nuevo monto a devolver el próximo período:</span><span id="renovar-total" style="font-weight:700;">${formatMoney(0)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Nueva fecha de vencimiento:</span><span id="renovar-fecha">${formatDate(addPeriod(cuota.dueDate, 1, periodicidad))}</span></div>
+          </div>
+          <button type="submit" class="btn btn-solid" style="width:100%;">Confirmar renovación</button>
+        </form>
+      </div>
+    </div>`;
+}
+function updateRenovarPreview(loanId){
+  const loan = STATE.loans.find(l => l.id === loanId);
+  const f = document.querySelector('#modal-root form');
+  const percent = Number(f.nuevoPercent.value) || 0;
+  const total = loan.amount * (1 + percent / 100);
+  document.getElementById('renovar-total').textContent = formatMoney(total);
+}
+function submitRenovarForm(e, loanId, cuotaIndex){
+  e.preventDefault();
+  const f = e.target;
+  renovarInteres(loanId, cuotaIndex, f.fechaPago.value, Number(f.nuevoPercent.value));
+}
+async function renovarInteres(loanId, cuotaIndex, fechaPago, nuevoPercent){
+  const loan = STATE.loans.find(l => l.id === loanId);
+  if(!loan) return;
+  const cuota = loan.cuotas[cuotaIndex];
+  const periodicidad = loan.periodicidad || 'mensual';
+  const interesAhora = Math.round((cuota.interes || 0) * 100) / 100;
+
+  // La cuota actual se "achica" al monto real cobrado (solo el interés) y queda saldada.
+  cuota.amount = interesAhora;
+  cuota.interes = interesAhora;
+  cuota.paidAmount = interesAhora;
+  cuota.paid = true;
+  cuota.paidDate = fechaPago;
+  cuota.renovada = true;
+
+  // Se agrega una cuota nueva al final, por el mismo capital + el interés del nuevo período.
+  const principal = loan.amount;
+  const nuevoTotal = Math.round(principal * (1 + nuevoPercent / 100) * 100) / 100;
+  const nuevoInteres = Math.round((nuevoTotal - principal) * 100) / 100;
+  const nuevaDueDate = addPeriod(cuota.dueDate, 1, periodicidad);
+  loan.cuotas.push({
+    n: loan.cuotas.length + 1, dueDate: nuevaDueDate, amount: nuevoTotal, interes: nuevoInteres,
+    paidAmount: 0, paid: false, paidDate: null
+  });
+
+  loan.percent = nuevoPercent;
+  loan.totalToReturn = Math.round(loan.cuotas.reduce((a, c) => a + c.amount, 0) * 100) / 100;
+  loan.renovaciones = loan.renovaciones || [];
+  loan.renovaciones.push({ fecha: fechaPago, interesCobrado: interesAhora, percentUsado: nuevoPercent });
+
+  STATE.loans = STATE.loans.map(l => l.id === loanId ? loan : l);
+  await persist('loans', STATE.loans);
+  closeModal(); render();
+  showToast(`Renovado — vence el próximo período el ${formatDate(nuevaDueDate)}`);
 }
 
 function openPayModal(type, id, cuotaIndex, forzar){
