@@ -999,7 +999,7 @@ function toggleStarFilter(n){
 /* ================= RENDER: SIDEBAR ================= */
 function renderSidebar(){
   const due = getAllDue();
-  const pendCount = due.filter(d => d.estado === 'vencida' || d.estado === 'proxima').length;
+  const pendCount = due.filter(d => (d.estado === 'vencida' || d.estado === 'proxima') && !STATE.notifDismissed.has(`${d.type}-${d.item.id}-${d.cuotaIndex}`)).length;
   const item = (tab, icon, label, dot, iconColor) => `
     <div class="nav-item ${STATE.tab === tab ? 'active' : ''}" onclick="goTab('${tab}')">
       <i class="fa-solid ${icon}" ${iconColor && STATE.tab !== tab ? `style="color:${iconColor};"` : ''}></i> ${label} ${dot ? '<span class="dot"></span>' : ''}
