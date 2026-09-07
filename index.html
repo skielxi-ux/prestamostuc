@@ -1009,18 +1009,30 @@ function renderSidebar(){
     <div class="nav-group">
       <div class="nav-group-label">Principal</div>
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
-      ${item('movimientos', 'fa-timeline', 'Últimos movimientos')}
-      ${item('exportarVencimientos', 'fa-file-export', 'Exportar vencimientos/Mes')}
+      ${item('clientes', 'fa-users', 'Clientes')}
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Sistema</div>
       ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
+      ${item('movimientos', 'fa-timeline', 'Últimos movimientos')}
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Gestión / Operación</div>
+      ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
+      ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
+      ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
+      ${item('ventas', 'fa-cart-shopping', 'Artículos')}
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Inventario</div>
+      ${item('stock', 'fa-boxes-stacked', 'Stock')}
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Métricas y reportes</div>
       ${item('metricas', 'fa-chart-pie', 'Métricas de Préstamos')}
       ${item('metricasArticulos', 'fa-chart-pie', 'Métricas de Artículos')}
-      ${item('prestamos', 'fa-sack-dollar', 'Préstamos')}
-      ${item('ventas', 'fa-cart-shopping', 'Artículos')}
-      ${item('stock', 'fa-boxes-stacked', 'Stock')}
-      ${item('clientes', 'fa-users', 'Clientes')}
-      ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
+      ${item('exportarVencimientos', 'fa-file-export', 'Exportar vencimientos/Mes')}
       ${item('vencimientos', 'fa-list-check', 'Historial de vencimientos')}
-      ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
     </div>
     <div class="sidebar-foot">
       <div class="agname">${STATE.clients.length} clientes cargados</div>
