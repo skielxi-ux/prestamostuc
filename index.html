@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], stock: [], tab: 'dashboard', search: '', historialSearch: '', stockSearch: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth() };
+let STATE = { clients: [], loans: [], sales: [], stock: [], tab: 'dashboard', search: '', historialSearch: '', stockSearch: '', vencSearch: '', vencDesde: '', vencHasta: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth() };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -698,7 +698,7 @@ async function saveLoan(data){
 async function saveSale(data){
   const client = findOrCreateClient(data.clientName, data.phone, data.dni, data.address);
   const financed = Math.max(data.price - data.anticipo, 0);
-  const sale = { id: genId(), clientId: client.id, clientName: client.name, article: data.article, price: data.price, anticipo: data.anticipo, date: data.date, paymentMethod: data.paymentMethod, moraPercent: data.moraPercent || 0, cuotas: financed > 0 ? genCuotas(data.date, data.numCuotas, financed) : [] };
+  const sale = { id: genId(), clientId: client.id, clientName: client.name, article: data.article, price: data.price, anticipo: data.anticipo, date: data.date, paymentMethod: data.paymentMethod, moraPercent: data.moraPercent || 0, socio: data.socio || '', cuotas: financed > 0 ? genCuotas(data.date, data.numCuotas, financed) : [] };
   STATE.sales = [sale, ...STATE.sales];
   await persist('clients', STATE.clients); await persist('sales', STATE.sales);
   closeModal(); render();
@@ -1009,6 +1009,7 @@ function renderSidebar(){
     <div class="nav-group">
       <div class="nav-group-label">Principal</div>
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
+      ${item('movimientos', 'fa-timeline', 'Últimos movimientos')}
       ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
       ${item('metricas', 'fa-chart-pie', 'Métricas de Préstamos')}
       ${item('metricasArticulos', 'fa-chart-pie', 'Métricas de Artículos')}
@@ -1017,6 +1018,7 @@ function renderSidebar(){
       ${item('stock', 'fa-boxes-stacked', 'Stock')}
       ${item('clientes', 'fa-users', 'Clientes')}
       ${item('historial', 'fa-clock-rotate-left', 'Historial de préstamos')}
+      ${item('vencimientos', 'fa-list-check', 'Historial de vencimientos')}
       ${item('calendario', 'fa-calendar-days', 'Calendario de pagos')}
     </div>
     <div class="sidebar-foot">
@@ -1096,7 +1098,7 @@ function renderItemCard(item, type){
           </div>
           <div class="meta">${metaLine}</div>
           ${type === 'loan' && item.garantia ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-shield-halved" style="margin-right:5px;color:var(--paper-dim);"></i>Garantía: ${esc(item.garantia)}</div>` : ''}
-          ${type === 'loan' && item.socio ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-user-tie" style="margin-right:5px;color:var(--paper-dim);"></i>Cargado por: ${esc(item.socio)}</div>` : ''}
+          ${item.socio ? `<div class="meta" style="margin-top:2px;"><i class="fa-solid fa-user-tie" style="margin-right:5px;color:var(--paper-dim);"></i>Cargado por: ${esc(item.socio)}</div>` : ''}
           ${item.refinanciadoEnId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Refinanciado el ${formatDate(item.refinanciadoEnFecha)} → se convirtió en un préstamo nuevo</div>` : ''}
           ${item.refinanciaDeId ? `<div class="meta" style="margin-top:2px;color:#463ACB;"><i class="fa-solid fa-rotate" style="margin-right:5px;"></i>Viene de refinanciar el ${esc(item.refinanciaDeInfo || '')}</div>` : ''}
           <div class="cuota-line">Cuota ${cuotaActualLabel(item)} · saldo pendiente <b>${formatMoney(saldo)}</b></div>
@@ -1237,6 +1239,56 @@ function onInteresesMesChange(campo, v){
   if(campo === 'month') STATE.interesesMonth = Number(v);
   else STATE.interesesYear = Number(v);
   render();
+}
+function renderUltimosMovimientos(){
+  const ultimoPrestamo = STATE.loans[0] || null;
+  const ultimaVenta = STATE.sales[0] || null;
+  const ultimoStock = STATE.stock[0] || null;
+
+  const tarjeta = (icono, titulo, contenido) => `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <i class="fa-solid ${icono}" style="color:var(--brass-bright);"></i>
+        <span style="font-family:var(--font-display);font-size:15px;font-weight:700;">${titulo}</span>
+      </div>
+      ${contenido}
+    </div>`;
+
+  const filaDato = (label, valor) => `
+    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13.5px;">
+      <span style="color:var(--paper-dim);">${label}</span>
+      <span style="font-weight:600;text-align:right;">${valor}</span>
+    </div>`;
+
+  const bloquePrestamo = ultimoPrestamo ? `
+    ${filaDato('Cliente', esc(ultimoPrestamo.clientName))}
+    ${filaDato('Monto', formatMoney(ultimoPrestamo.amount))}
+    ${filaDato('Interés', `${ultimoPrestamo.percent}%`)}
+    ${filaDato('Fecha', formatDate(ultimoPrestamo.date))}
+    ${filaDato('Cargado por', ultimoPrestamo.socio ? esc(ultimoPrestamo.socio) : '<span style="color:var(--paper-dim);font-weight:400;">Sin especificar</span>')}
+  ` : `<div class="empty-row" style="padding:16px 0;">Todavía no cargaste ningún préstamo.</div>`;
+
+  const bloqueVenta = ultimaVenta ? `
+    ${filaDato('Cliente', esc(ultimaVenta.clientName))}
+    ${filaDato('Artículo', esc(ultimaVenta.article))}
+    ${filaDato('Precio total', formatMoney(ultimaVenta.price))}
+    ${filaDato('Fecha', formatDate(ultimaVenta.date))}
+    ${filaDato('Cargado por', ultimaVenta.socio ? esc(ultimaVenta.socio) : '<span style="color:var(--paper-dim);font-weight:400;">Sin especificar</span>')}
+  ` : `<div class="empty-row" style="padding:16px 0;">Todavía no cargaste ninguna venta.</div>`;
+
+  const bloqueStock = ultimoStock ? `
+    ${filaDato('Artículo', esc(ultimoStock.articulo))}
+    ${filaDato('Cantidad', ultimoStock.cantidad)}
+    ${filaDato('Fecha', formatDate(ultimoStock.fecha))}
+    ${filaDato('Cargado por', ultimoStock.socio ? esc(ultimoStock.socio) : '<span style="color:var(--paper-dim);font-weight:400;">Sin especificar</span>')}
+  ` : `<div class="empty-row" style="padding:16px 0;">Todavía no cargaste stock.</div>`;
+
+  return `
+    <div class="main-head"><div><h1>Últimos movimientos</h1><p class="sub">El préstamo, la venta y el artículo de stock más recientes, y quién los cargó</p></div></div>
+    ${tarjeta('fa-sack-dollar', 'Último préstamo cargado', bloquePrestamo)}
+    ${tarjeta('fa-cart-shopping', 'Última venta cargada', bloqueVenta)}
+    ${tarjeta('fa-boxes-stacked', 'Último artículo cargado a stock', bloqueStock)}
+  `;
 }
 function renderDashboard(){
   const stats = getStats();
@@ -1613,6 +1665,202 @@ function renderHistorialPrestamos(){
   `;
 }
 
+/* ================= HISTORIAL DE VENCIMIENTOS ================= */
+function getVencimientosFiltrados(){
+  const desde = STATE.vencDesde || null;
+  const hasta = STATE.vencHasta || null;
+  const q = (STATE.vencSearch || '').trim().toLowerCase();
+  const qDigits = q.replace(/[^0-9]/g, '');
+
+  const porCliente = {};
+  const agregar = (item, type) => {
+    if(item.refinanciadoEnId) return;
+    item.cuotas.forEach((c, i) => {
+      if(c.paid) return;
+      if(desde && c.dueDate < desde) return;
+      if(hasta && c.dueDate > hasta) return;
+      (porCliente[item.clientId] = porCliente[item.clientId] || []).push({ item, type, cuota: c, cuotaIndex: i });
+    });
+  };
+  STATE.loans.forEach(l => agregar(l, 'loan'));
+  STATE.sales.forEach(s => agregar(s, 'sale'));
+
+  let grupos = Object.keys(porCliente).map(clientId => {
+    const client = STATE.clients.find(c => c.id === clientId) || { name: porCliente[clientId][0].item.clientName, phone: '' };
+    const filas = porCliente[clientId].sort((a, b) => a.cuota.dueDate.localeCompare(b.cuota.dueDate));
+    const totalPendiente = filas.reduce((acc, f) => acc + Math.max(0, f.cuota.amount - f.cuota.paidAmount) + calcRecargoMora(f.cuota, f.item), 0);
+    return { clientId, client, filas, totalPendiente };
+  });
+
+  if(q){
+    grupos = grupos.filter(g =>
+      g.client.name.toLowerCase().includes(q) ||
+      (qDigits && g.client.phone && g.client.phone.replace(/[^0-9]/g, '').includes(qDigits))
+    );
+  }
+  return grupos.sort((a, b) => b.totalPendiente - a.totalPendiente);
+}
+function conceptoFila(f){
+  return f.type === 'loan' ? `Préstamo ${formatMoney(f.item.amount)} · ${f.item.percent}%` : `Artículo: ${f.item.article} (${formatMoney(f.item.price)})`;
+}
+function renderHistorialVencimientos(){
+  const grupos = getVencimientosFiltrados();
+  const hayFiltros = STATE.vencSearch || STATE.vencDesde || STATE.vencHasta;
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Historial de vencimientos</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Deuda pendiente de préstamos y artículos, por cliente y por rango de fechas</p></div>
+      ${grupos.length > 0 ? `<button class="btn btn-sm" onclick="generateVencimientosPDF()"><i class="fa-solid fa-file-pdf"></i>Descargar PDF</button>` : ''}
+    </div>
+    <div class="card" style="margin-bottom:22px;">
+      <div class="row-3">
+        <div class="field" style="margin-bottom:0;">
+          <label>Buscar cliente (nombre o teléfono)</label>
+          <input id="venc-search-input" value="${esc(STATE.vencSearch || '')}" placeholder="Dejalo vacío para ver todos" oninput="onVencSearch(this.value)">
+        </div>
+        <div class="field" style="margin-bottom:0;"><label>Desde</label><input type="date" value="${STATE.vencDesde || ''}" onchange="onVencFecha('desde', this.value)"></div>
+        <div class="field" style="margin-bottom:0;"><label>Hasta</label><input type="date" value="${STATE.vencHasta || ''}" onchange="onVencFecha('hasta', this.value)"></div>
+      </div>
+      ${hayFiltros ? `<button class="btn btn-sm" style="margin-top:12px;" onclick="clearVencFiltros()"><i class="fa-solid fa-xmark"></i>Limpiar filtros</button>` : ''}
+    </div>
+    ${grupos.length === 0 ? `<div class="card empty-row">No hay deuda pendiente que coincida con estos filtros.</div>` : grupos.map(g => `
+      <div class="card" style="margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;" onclick="STATE.tab='clientes';openClient('${g.clientId}')">
+          <div>
+            <div style="font-family:var(--font-display);font-size:16px;font-weight:700;">${esc(g.client.name)}</div>
+            ${g.client.phone ? `<div style="font-size:12px;color:var(--paper-dim);margin-top:2px;"><i class="fa-solid fa-phone" style="font-size:10px;margin-right:5px;"></i>${esc(g.client.phone)}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--paper-dim);text-transform:uppercase;letter-spacing:.04em;">Total adeudado</div>
+            <div style="font-family:var(--font-display);font-size:16px;font-weight:700;">${formatMoney(g.totalPendiente)}</div>
+          </div>
+        </div>
+        <table style="margin-top:12px;">
+          <thead><tr><th>Cuota</th><th>Concepto</th><th>Vence</th><th>Monto</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${g.filas.map(f => {
+              const est = cuotaEstado(f.cuota);
+              const key = est === 'vencida' ? 'vencido' : est === 'proxima' ? 'proximo' : 'aldia';
+              const recargo = calcRecargoMora(f.cuota, f.item);
+              return `
+              <tr>
+                <td>${f.cuota.n}/${f.item.cuotas.length}</td>
+                <td style="color:var(--paper-dim);">${conceptoFila(f)}</td>
+                <td>${formatDate(f.cuota.dueDate)}</td>
+                <td>${formatMoney(f.cuota.amount - f.cuota.paidAmount + recargo)}${recargo > 0 ? `<div style="color:#A32D2D;font-size:11px;">+${formatMoney(recargo)} mora</div>` : ''}</td>
+                <td>${statusPill(key)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('')}
+  `;
+}
+function onVencSearch(v){
+  STATE.vencSearch = v;
+  render(true);
+  const el = document.getElementById('venc-search-input');
+  if(el){ el.focus(); const p = el.value.length; el.setSelectionRange(p, p); }
+}
+function onVencFecha(campo, v){
+  if(campo === 'desde') STATE.vencDesde = v; else STATE.vencHasta = v;
+  render();
+}
+function clearVencFiltros(){
+  STATE.vencSearch = ''; STATE.vencDesde = ''; STATE.vencHasta = '';
+  render();
+}
+function generateVencimientosPDF(){
+  const grupos = getVencimientosFiltrados();
+  if(grupos.length === 0){ showToast('No hay datos para exportar con estos filtros'); return; }
+  if(typeof window.jspdf === 'undefined'){ showToast('No se pudo generar el PDF. Revisá tu conexión.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 14;
+  let y = 18;
+
+  const rangoTexto = STATE.vencDesde || STATE.vencHasta
+    ? `Del ${STATE.vencDesde ? formatDate(STATE.vencDesde) : '...'} al ${STATE.vencHasta ? formatDate(STATE.vencHasta) : '...'}`
+    : 'Todas las fechas';
+
+  function drawHeader(){
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(28, 43, 54);
+    doc.text('Historial de vencimientos', marginX, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(105, 116, 124);
+    doc.text(`${STATE.businessName ? STATE.businessName + ' · ' : ''}${rangoTexto} · generado el ${formatDate(todayStr())}`, marginX, y);
+    y += 8;
+    doc.setDrawColor(228, 225, 216);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 8;
+  }
+
+  drawHeader();
+  let totalGeneral = 0;
+
+  grupos.forEach(g => {
+    const bloqueAlto = 14 + g.filas.length * 6.5;
+    if(y + bloqueAlto > pageHeight - 20){ doc.addPage(); y = 18; drawHeader(); }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(28, 43, 54);
+    doc.text(g.client.name, marginX, y);
+    doc.text(formatMoney(g.totalPendiente), pageWidth - marginX, y, { align: 'right' });
+    y += 5;
+    if(g.client.phone){
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(105, 116, 124);
+      doc.text(g.client.phone, marginX, y);
+      y += 5;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(105, 116, 124);
+    doc.text('Cuota', marginX, y);
+    doc.text('Concepto', marginX + 18, y);
+    doc.text('Vence', marginX + 110, y);
+    doc.text('Monto', pageWidth - marginX, y, { align: 'right' });
+    y += 4.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(28, 43, 54);
+    g.filas.forEach(f => {
+      const recargo = calcRecargoMora(f.cuota, f.item);
+      const monto = f.cuota.amount - f.cuota.paidAmount + recargo;
+      doc.text(`${f.cuota.n}/${f.item.cuotas.length}`, marginX, y);
+      const concepto = doc.splitTextToSize(conceptoFila(f), 88);
+      doc.text(concepto[0] || '', marginX + 18, y);
+      doc.text(formatDate(f.cuota.dueDate), marginX + 110, y);
+      doc.text(formatMoney(monto), pageWidth - marginX, y, { align: 'right' });
+      y += 6;
+    });
+    totalGeneral += g.totalPendiente;
+    y += 4;
+    doc.setDrawColor(228, 225, 216);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 8;
+  });
+
+  if(y > pageHeight - 25){ doc.addPage(); y = 18; }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  doc.setTextColor(28, 43, 54);
+  doc.text('Total general adeudado', marginX, y);
+  doc.text(formatMoney(totalGeneral), pageWidth - marginX, y, { align: 'right' });
+
+  doc.save(`historial-vencimientos-${todayStr()}.pdf`);
+}
+
 function renderVentas(){
   return `
     <div class="toolbar">
@@ -1768,8 +2016,10 @@ function render(skipSearchSync){
   else if(STATE.tab === 'metricas') html = renderMetricas();
   else if(STATE.tab === 'metricasArticulos') html = renderMetricasArticulos();
   else if(STATE.tab === 'notificaciones') html = renderNotificaciones();
+  else if(STATE.tab === 'movimientos') html = renderUltimosMovimientos();
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
   else if(STATE.tab === 'historial') html = renderHistorialPrestamos();
+  else if(STATE.tab === 'vencimientos') html = renderHistorialVencimientos();
   else if(STATE.tab === 'ventas') html = renderVentas();
   else if(STATE.tab === 'stock') html = renderStock();
   else if(STATE.tab === 'clientes') html = STATE.selectedClientId ? renderClienteDetail() : renderClientesList();
@@ -1846,7 +2096,7 @@ function openLoanFormModal(periodicidad){
           <input type="hidden" name="periodicidad" value="${periodicidad}">
           <div class="field"><label>Cliente</label><input list="clients-list" name="clientName" placeholder="Nombre del cliente" required></div>
           <datalist id="clients-list">${STATE.clients.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>
-          <div class="field"><label>Teléfono (opcional)</label><input name="phone" placeholder="Ej: 381 555 1234"></div>
+          <div class="field"><label>Teléfono</label><input name="phone" placeholder="Ej: 381 555 1234" required></div>
           <div class="row-2">
             <div class="field"><label>DNI (opcional)</label><input name="dni" placeholder="Ej: 30123456"></div>
             <div class="field"><label>Dirección (opcional)</label><input name="address" placeholder="Ej: San Martín 450"></div>
@@ -2090,7 +2340,7 @@ function openSaleModal(){
         <form onsubmit="submitSaleForm(event)">
           <div class="field"><label>Cliente</label><input list="clients-list2" name="clientName" placeholder="Nombre del cliente" required></div>
           <datalist id="clients-list2">${STATE.clients.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>
-          <div class="field"><label>Teléfono (opcional)</label><input name="phone" placeholder="Ej: 381 555 1234"></div>
+          <div class="field"><label>Teléfono</label><input name="phone" placeholder="Ej: 381 555 1234" required></div>
           <div class="row-2">
             <div class="field"><label>DNI (opcional)</label><input name="dni" placeholder="Ej: 30123456"></div>
             <div class="field"><label>Dirección (opcional)</label><input name="address" placeholder="Ej: San Martín 450"></div>
@@ -2110,6 +2360,7 @@ function openSaleModal(){
             </div>
           </div>
           <div class="field"><label>Interés por mora (% mensual sobre la cuota vencida, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="0"></div>
+          <div class="field"><label>Socio que cargó la venta</label><input name="socio" placeholder="Nombre del socio" required></div>
           <div class="card" style="background:var(--ink-3);margin-bottom:14px;">
             <div style="display:flex;justify-content:space-between;font-size:14px;"><span>Saldo a financiar:</span><span id="sale-financed" style="font-weight:700;">${formatMoney(0)}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--paper-dim);"><span>Valor de cada cuota:</span><span id="sale-cuota">${formatMoney(0)}</span></div>
@@ -2137,7 +2388,8 @@ function submitSaleForm(e){
     article: f.article.value.trim(), price: Number(f.price.value),
     anticipo: Number(f.anticipo.value) || 0, date: f.date.value,
     paymentMethod: f.paymentMethod.value, numCuotas: Number(f.numCuotas.value),
-    moraPercent: Number(f.moraPercent.value) || 0
+    moraPercent: Number(f.moraPercent.value) || 0,
+    socio: f.socio.value.trim()
   });
 }
 
@@ -2328,6 +2580,7 @@ function openEditSaleModal(id){
             </div>
           </div>
           <div class="field"><label>Interés por mora (% mensual, opcional)</label><input name="moraPercent" type="number" min="0" step="0.01" value="${item.moraPercent || 0}"></div>
+          <div class="field"><label>Socio que cargó la venta</label><input name="socio" value="${esc(item.socio || '')}" placeholder="Nombre del socio"></div>
           <button type="submit" class="btn btn-solid" style="width:100%;">Guardar cambios</button>
         </form>
       </div>
@@ -2340,7 +2593,8 @@ function submitEditSaleForm(e, id){
     phone: f.phone.value.trim(), dni: f.dni.value.trim(), address: f.address.value.trim(),
     article: f.article.value.trim(), price: Number(f.price.value), anticipo: Number(f.anticipo.value) || 0,
     date: f.date.value, paymentMethod: f.paymentMethod.value,
-    numCuotas: Number(f.numCuotas.value), moraPercent: Number(f.moraPercent.value) || 0
+    numCuotas: Number(f.numCuotas.value), moraPercent: Number(f.moraPercent.value) || 0,
+    socio: f.socio.value.trim()
   });
 }
 async function editSale(id, data){
@@ -2358,6 +2612,7 @@ async function editSale(id, data){
   sale.date = data.date;
   sale.paymentMethod = data.paymentMethod;
   sale.moraPercent = data.moraPercent;
+  sale.socio = data.socio;
   if(!tienePagos || cambioEstructural){
     const financed = Math.max(data.price - data.anticipo, 0);
     sale.cuotas = financed > 0 ? genCuotas(data.date, data.numCuotas, financed) : [];
