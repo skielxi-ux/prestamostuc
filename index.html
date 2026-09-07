@@ -229,7 +229,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 const db = firebase.firestore();
 
 /* ================= ESTADO ================= */
-let STATE = { clients: [], loans: [], sales: [], stock: [], tab: 'dashboard', search: '', historialSearch: '', stockSearch: '', vencSearch: '', vencDesde: '', vencHasta: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth() };
+let STATE = { clients: [], loans: [], sales: [], stock: [], tab: 'dashboard', search: '', historialSearch: '', stockSearch: '', vencSearch: '', vencDesde: '', vencHasta: '', clientFilter: 'todos', starFilter: null, expanded: null, selectedClientId: null, loading: true, userEmail: '', evolucionMeses: 6, calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), notifDismissed: new Set(), businessName: '', dolar: null, capitalTotal: 0, capitalTotalArticulos: 0, interesesYear: new Date().getFullYear(), interesesMonth: new Date().getMonth(), expVencYear: new Date().getFullYear(), expVencMonth: new Date().getMonth() };
 
 /* ================= UTILIDADES ================= */
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1010,6 +1010,7 @@ function renderSidebar(){
       <div class="nav-group-label">Principal</div>
       ${item('dashboard', 'fa-gauge', 'Dashboard')}
       ${item('movimientos', 'fa-timeline', 'Últimos movimientos')}
+      ${item('exportarVencimientos', 'fa-file-export', 'Exportar vencimientos/Mes')}
       ${item('notificaciones', 'fa-bell', 'Notificaciones', pendCount > 0, '#1DB954')}
       ${item('metricas', 'fa-chart-pie', 'Métricas de Préstamos')}
       ${item('metricasArticulos', 'fa-chart-pie', 'Métricas de Artículos')}
@@ -1289,6 +1290,125 @@ function renderUltimosMovimientos(){
     ${tarjeta('fa-cart-shopping', 'Última venta cargada', bloqueVenta)}
     ${tarjeta('fa-boxes-stacked', 'Último artículo cargado a stock', bloqueStock)}
   `;
+}
+
+/* ================= EXPORTAR VENCIMIENTOS / MES ================= */
+function getVencimientosDelMesExport(year, month){
+  const clave = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const filas = [];
+  const agregar = (item) => {
+    if(item.refinanciadoEnId) return;
+    item.cuotas.forEach(c => {
+      if(c.paid) return;
+      if(c.dueDate.slice(0, 7) !== clave) return;
+      const recargo = calcRecargoMora(c, item);
+      filas.push({ clientName: item.clientName, monto: c.amount - c.paidAmount + recargo, fecha: c.dueDate });
+    });
+  };
+  STATE.loans.forEach(agregar);
+  STATE.sales.forEach(agregar);
+  return filas.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.clientName.localeCompare(b.clientName));
+}
+function renderExportarVencimientos(){
+  const filas = getVencimientosDelMesExport(STATE.expVencYear, STATE.expVencMonth);
+  const total = filas.reduce((a, f) => a + f.monto, 0);
+  return `
+    <div class="toolbar">
+      <div><h1 style="font-family:var(--font-display);font-size:26px;font-weight:600;margin:0;">Exportar vencimientos/Mes</h1><p class="sub" style="color:var(--paper-dim);font-size:13.5px;margin:6px 0 0;">Listado de cuotas pendientes de todos los clientes (préstamos y artículos) para un mes puntual</p></div>
+      ${filas.length > 0 ? `<button class="btn btn-solid" onclick="generateExportVencimientosPDF()"><i class="fa-solid fa-file-pdf"></i>Descargar PDF</button>` : ''}
+    </div>
+    <div class="card" style="margin-bottom:20px;">
+      <div class="row-2">
+        <div class="field" style="margin-bottom:0;"><label>Mes</label>
+          <select onchange="onExpVencChange('month', this.value)">${MESES_LARGO.map((m, i) => `<option value="${i}" ${i === STATE.expVencMonth ? 'selected' : ''}>${m}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin-bottom:0;"><label>Año</label>
+          <select onchange="onExpVencChange('year', this.value)">${Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => `<option value="${y}" ${y === STATE.expVencYear ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table>
+        <thead><tr><th>Nombre cliente</th><th>Monto de cuota a devolver</th><th>Fecha de vencimiento</th></tr></thead>
+        <tbody>
+          ${filas.length === 0 ? `<tr><td colspan="3" class="empty-row">No hay cuotas pendientes que venzan en ${MESES_LARGO[STATE.expVencMonth]} ${STATE.expVencYear}.</td></tr>` :
+            filas.map(f => `<tr><td style="font-weight:600;">${esc(f.clientName)}</td><td>${formatMoney(f.monto)}</td><td>${formatDate(f.fecha)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${filas.length > 0 ? `<div style="text-align:right;margin-top:10px;font-size:13.5px;color:var(--paper-dim);">Total del mes: <b style="color:var(--paper);">${formatMoney(total)}</b> · ${filas.length} cuota${filas.length === 1 ? '' : 's'}</div>` : ''}
+  `;
+}
+function onExpVencChange(campo, v){
+  if(campo === 'month') STATE.expVencMonth = Number(v); else STATE.expVencYear = Number(v);
+  render();
+}
+function generateExportVencimientosPDF(){
+  const filas = getVencimientosDelMesExport(STATE.expVencYear, STATE.expVencMonth);
+  if(filas.length === 0){ showToast('No hay vencimientos para exportar ese mes'); return; }
+  if(typeof window.jspdf === 'undefined'){ showToast('No se pudo generar el PDF. Revisá tu conexión.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 16;
+  let y = 20;
+
+  function drawHeader(){
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(28, 43, 54);
+    doc.text(`Vencimientos de ${MESES_LARGO[STATE.expVencMonth]} ${STATE.expVencYear}`, marginX, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(105, 116, 124);
+    doc.text(`${STATE.businessName ? STATE.businessName + ' · ' : ''}Generado el ${formatDate(todayStr())}`, marginX, y);
+    y += 8;
+    doc.setDrawColor(228, 225, 216);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 7;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(105, 116, 124);
+    doc.text('Nombre cliente', marginX, y);
+    doc.text('Monto de cuota a devolver', marginX + 90, y);
+    doc.text('Fecha de vencimiento', pageWidth - marginX, y, { align: 'right' });
+    y += 3;
+    doc.setDrawColor(210, 205, 191);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 6;
+  }
+
+  drawHeader();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(28, 43, 54);
+
+  let total = 0;
+  filas.forEach(f => {
+    if(y > pageHeight - 25){ doc.addPage(); y = 20; drawHeader(); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(28, 43, 54); }
+    const nombre = doc.splitTextToSize(f.clientName, 78);
+    doc.text(nombre[0] || '', marginX, y);
+    doc.text(formatMoney(f.monto), marginX + 90, y);
+    doc.text(formatDate(f.fecha), pageWidth - marginX, y, { align: 'right' });
+    total += f.monto;
+    y += 7;
+  });
+
+  y += 5;
+  if(y > pageHeight - 20){ doc.addPage(); y = 20; }
+  doc.setDrawColor(228, 225, 216);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(28, 43, 54);
+  doc.text(`Total del mes (${filas.length} cuota${filas.length === 1 ? '' : 's'})`, marginX, y);
+  doc.text(formatMoney(total), pageWidth - marginX, y, { align: 'right' });
+
+  doc.save(`vencimientos-${STATE.expVencYear}-${String(STATE.expVencMonth + 1).padStart(2, '0')}.pdf`);
 }
 function renderDashboard(){
   const stats = getStats();
@@ -2017,6 +2137,7 @@ function render(skipSearchSync){
   else if(STATE.tab === 'metricasArticulos') html = renderMetricasArticulos();
   else if(STATE.tab === 'notificaciones') html = renderNotificaciones();
   else if(STATE.tab === 'movimientos') html = renderUltimosMovimientos();
+  else if(STATE.tab === 'exportarVencimientos') html = renderExportarVencimientos();
   else if(STATE.tab === 'prestamos') html = renderPrestamos();
   else if(STATE.tab === 'historial') html = renderHistorialPrestamos();
   else if(STATE.tab === 'vencimientos') html = renderHistorialVencimientos();
