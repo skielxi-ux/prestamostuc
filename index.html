@@ -1163,15 +1163,8 @@ function renderMetricas(){
   return `
     <div class="main-head">
       <div><h1>Métricas de Préstamos</h1><p class="sub">Foto del capital de tu negocio, solo préstamos</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-sm" style="color:#3F7A46;border-color:#3F7A46;" onclick="ajustarCapitalTotal('sumar')"><i class="fa-solid fa-plus"></i>Agregar capital</button>
-        <button class="btn btn-sm" style="color:#A32D2D;border-color:#A32D2D;" onclick="ajustarCapitalTotal('retirar')"><i class="fa-solid fa-minus"></i>Retirar capital</button>
-        <button class="btn btn-sm" onclick="configureCapitalTotal()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotal ? 'Editar capital total' : 'Cargar capital total'}</button>
-      </div>
     </div>
-    ${!STATE.capitalTotal ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste tu capital total. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
-    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);">
-      <div class="kpi"><div class="lbl">Capital disponible</div><div class="val ${m.capitalDisponible < 0 ? 'brick' : 'sage'}">${formatMoney(m.capitalDisponible)}</div></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
       <div class="kpi"><div class="lbl">Capital prestado</div><div class="val">${formatMoney(m.capitalPrestado)}</div></div>
       <div class="kpi"><div class="lbl">Monto a cobrar</div><div class="val">${formatMoney(m.montoACobrar)}</div></div>
       <div class="kpi"><div class="lbl">Monto cobrado (este mes)</div><div class="val sage">${formatMoney(m.montoCobradoMes)}</div></div>
@@ -1184,7 +1177,6 @@ function renderMetricas(){
     </div>
     <div style="font-size:12px;color:var(--paper-dim);margin-top:16px;line-height:1.6;">
       <ul style="margin:0;padding-left:18px;">
-        <li style="margin-bottom:4px;"><b>Capital disponible</b> = Capital total que cargaste − Capital prestado en préstamos activos hoy + Intereses cobrados históricamente. Así, tu capital disponible va creciendo solo a medida que cobrás interés, sin necesidad de una tarjeta aparte.</li>
         <li style="margin-bottom:4px;"><b>Capital prestado</b> y <b>Préstamos activos</b> no cuentan los finalizados ni los refinanciados.</li>
         <li style="margin-bottom:4px;"><b>Intereses cobrados</b> separa, de cada pago, la parte que es ganancia (no capital), estimada de forma proporcional según el % de interés de cada préstamo.</li>
         <li style="margin-bottom:4px;"><b>N° de clientes</b> son los clientes distintos que tienen o tuvieron al menos un préstamo.</li>
@@ -1220,15 +1212,8 @@ function renderMetricasArticulos(){
   return `
     <div class="main-head">
       <div><h1>Métricas de Artículos</h1><p class="sub">Foto del capital de tu negocio, solo artículos financiados</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-sm" style="color:#3F7A46;border-color:#3F7A46;" onclick="ajustarCapitalTotalArticulos('sumar')"><i class="fa-solid fa-plus"></i>Agregar capital</button>
-        <button class="btn btn-sm" style="color:#A32D2D;border-color:#A32D2D;" onclick="ajustarCapitalTotalArticulos('retirar')"><i class="fa-solid fa-minus"></i>Retirar capital</button>
-        <button class="btn btn-sm" onclick="configureCapitalTotalArticulos()"><i class="fa-solid fa-pen"></i>${STATE.capitalTotalArticulos ? 'Editar capital total' : 'Cargar capital total'}</button>
-      </div>
     </div>
-    ${!STATE.capitalTotalArticulos ? `<div class="card empty-row" style="margin-bottom:18px;">Todavía no cargaste el capital que destinás a artículos. Tocá "Cargar capital total" arriba para que "Capital disponible" se calcule bien.</div>` : ''}
-    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
-      <div class="kpi"><div class="lbl">Capital disponible</div><div class="val ${m.capitalDisponible < 0 ? 'brick' : 'sage'}">${formatMoney(m.capitalDisponible)}</div></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
       <div class="kpi"><div class="lbl">Capital financiado</div><div class="val">${formatMoney(m.capitalFinanciado)}</div></div>
       <div class="kpi"><div class="lbl">Monto a cobrar</div><div class="val">${formatMoney(m.montoACobrar)}</div></div>
       <div class="kpi"><div class="lbl">Monto cobrado (este mes)</div><div class="val sage">${formatMoney(m.montoCobradoMes)}</div></div>
@@ -1240,7 +1225,6 @@ function renderMetricasArticulos(){
     </div>
     <div style="font-size:12px;color:var(--paper-dim);margin-top:16px;line-height:1.6;">
       <ul style="margin:0;padding-left:18px;">
-        <li style="margin-bottom:4px;"><b>Capital disponible</b> = Capital total que destinás a artículos − Capital financiado en ventas activas hoy (este capital es aparte del de Préstamos).</li>
         <li style="margin-bottom:4px;"><b>Capital financiado</b> y <b>Ventas activas</b> no cuentan las finalizadas ni las refinanciadas.</li>
         <li style="margin-bottom:4px;"><b>N° de clientes</b> son los clientes distintos que tienen o tuvieron al menos un artículo financiado.</li>
         <li><b>Clientes con atrasos</b> cuenta personas, no cuotas.</li>
