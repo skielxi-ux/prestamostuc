@@ -1292,17 +1292,17 @@ function renderUltimosMovimientos(){
 function getVencimientosDelMesExport(year, month){
   const clave = `${year}-${String(month + 1).padStart(2, '0')}`;
   const filas = [];
-  const agregar = (item) => {
+  const agregar = (item, tipo) => {
     if(item.refinanciadoEnId) return;
     item.cuotas.forEach(c => {
       if(c.paid) return;
       if(c.dueDate.slice(0, 7) !== clave) return;
       const recargo = calcRecargoMora(c, item);
-      filas.push({ clientName: item.clientName, monto: c.amount - c.paidAmount + recargo, fecha: c.dueDate });
+      filas.push({ clientName: item.clientName, tipo, monto: c.amount - c.paidAmount + recargo, fecha: c.dueDate });
     });
   };
-  STATE.loans.forEach(agregar);
-  STATE.sales.forEach(agregar);
+  STATE.loans.forEach(l => agregar(l, 'Préstamo'));
+  STATE.sales.forEach(s => agregar(s, 'Artículo'));
   return filas.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.clientName.localeCompare(b.clientName));
 }
 function renderExportarVencimientos(){
@@ -1325,14 +1325,14 @@ function renderExportarVencimientos(){
     </div>
     <div class="card" style="padding:0;overflow:hidden;">
       <table>
-        <thead><tr><th>Nombre cliente</th><th>Monto de cuota a devolver</th><th>Fecha de vencimiento</th></tr></thead>
+        <thead><tr><th>Nombre cliente</th><th>Modelo</th><th>Monto de cuota a devolver</th><th>Fecha de vencimiento</th></tr></thead>
         <tbody>
-          ${filas.length === 0 ? `<tr><td colspan="3" class="empty-row">No hay cuotas pendientes que venzan en ${MESES_LARGO[STATE.expVencMonth]} ${STATE.expVencYear}.</td></tr>` :
-            filas.map(f => `<tr><td style="font-weight:600;">${esc(f.clientName)}</td><td>${formatMoney(f.monto)}</td><td>${formatDate(f.fecha)}</td></tr>`).join('')}
+          ${filas.length === 0 ? `<tr><td colspan="4" class="empty-row">No hay cuotas pendientes que venzan en ${MESES_LARGO[STATE.expVencMonth]} ${STATE.expVencYear}.</td></tr>` :
+            filas.map(f => `<tr><td style="font-weight:600;">${esc(f.clientName)}</td><td style="color:var(--paper-dim);">${f.tipo}</td><td>${formatMoney(f.monto)}</td><td>${formatDate(f.fecha)}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>
-    ${filas.length > 0 ? `<div style="text-align:right;margin-top:10px;font-size:13.5px;color:var(--paper-dim);">Total del mes: <b style="color:var(--paper);">${formatMoney(total)}</b> · ${filas.length} cuota${filas.length === 1 ? '' : 's'}</div>` : ''}
+    ${filas.length > 0 ? `<div style="text-align:right;margin-top:10px;font-size:13.5px;color:var(--paper-dim);">Total del mes: <b style="color:var(--paper);">${formatMoney(total)}</b></div>` : ''}
   `;
 }
 function onExpVencChange(campo, v){
@@ -1369,7 +1369,8 @@ function generateExportVencimientosPDF(){
     doc.setFontSize(10);
     doc.setTextColor(105, 116, 124);
     doc.text('Nombre cliente', marginX, y);
-    doc.text('Monto de cuota a devolver', marginX + 90, y);
+    doc.text('Modelo', marginX + 62, y);
+    doc.text('Monto de cuota a devolver', marginX + 92, y);
     doc.text('Fecha de vencimiento', pageWidth - marginX, y, { align: 'right' });
     y += 3;
     doc.setDrawColor(210, 205, 191);
@@ -1385,9 +1386,10 @@ function generateExportVencimientosPDF(){
   let total = 0;
   filas.forEach(f => {
     if(y > pageHeight - 25){ doc.addPage(); y = 20; drawHeader(); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(28, 43, 54); }
-    const nombre = doc.splitTextToSize(f.clientName, 78);
+    const nombre = doc.splitTextToSize(f.clientName, 44);
     doc.text(nombre[0] || '', marginX, y);
-    doc.text(formatMoney(f.monto), marginX + 90, y);
+    doc.text(f.tipo, marginX + 62, y);
+    doc.text(formatMoney(f.monto), marginX + 92, y);
     doc.text(formatDate(f.fecha), pageWidth - marginX, y, { align: 'right' });
     total += f.monto;
     y += 7;
@@ -1401,7 +1403,7 @@ function generateExportVencimientosPDF(){
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(28, 43, 54);
-  doc.text(`Total del mes (${filas.length} cuota${filas.length === 1 ? '' : 's'})`, marginX, y);
+  doc.text('Total del mes', marginX, y);
   doc.text(formatMoney(total), pageWidth - marginX, y, { align: 'right' });
 
   doc.save(`vencimientos-${STATE.expVencYear}-${String(STATE.expVencMonth + 1).padStart(2, '0')}.pdf`);
