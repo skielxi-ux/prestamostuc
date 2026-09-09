@@ -2202,10 +2202,6 @@ function openLoanModal(){
     </div>`;
 }
 function openLoanFormModal(periodicidad){
-  const numCuotasField = periodicidad === 'mensual'
-    ? `<select name="numCuotas" required onchange="updateLoanPreview()">${[1, 3, 6, 12].map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n}</option>`).join('')}</select>`
-    : `<input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()">`;
-  const opcionesInteres = periodicidad === 'diario' ? [5, 10, 15, 20, 25, 30] : [1, 20, 30, 35, 40, 100, 110, 120, 130, 140, 150];
   const tituloPeriodo = { diario: 'Diario', semanal: 'Semanal', mensual: 'Mensual' }[periodicidad];
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
@@ -2225,15 +2221,8 @@ function openLoanFormModal(periodicidad){
             <div class="field"><label>Fecha del préstamo</label><input name="date" type="date" value="${todayStr()}" required oninput="updateLoanPreview()"></div>
           </div>
           <div class="row-2">
-            <div class="field"><label>Interés (% fijo total)</label>
-              <select name="percent" required onchange="updateLoanPreview()">
-                <option value="">Elegí un %</option>
-                ${opcionesInteres.map(p => `<option value="${p}">${p}%</option>`).join('')}
-              </select>
-            </div>
-            <div class="field"><label>Cantidad de cuotas (${periodLabel(periodicidad, true)})</label>
-              ${numCuotasField}
-            </div>
+            <div class="field"><label>Interés (% fijo total)</label><input name="percent" type="number" min="0" step="0.01" required oninput="updateLoanPreview()"></div>
+            <div class="field"><label>Cantidad de cuotas (${periodLabel(periodicidad, true)})</label><input name="numCuotas" type="number" min="1" step="1" value="1" required oninput="updateLoanPreview()"></div>
           </div>
           ${periodicidad === 'mensual' ? `
           <div class="field">
